@@ -510,11 +510,15 @@ export default function RobotViewer(){
     m.start=null;m.end=null;
   },[]);
   const createMeasureMarker=(pos,color=0xff6600)=>{
-    const geo=new THREE.SphereGeometry(0.008,12,8);
-    const mat=new THREE.MeshBasicMaterial({color,depthTest:false,depthWrite:false});
-    const mesh=new THREE.Mesh(geo,mat);mesh.renderOrder=1000;
-    mesh.position.copy(pos);
-    return mesh;
+    const g=new THREE.Group();
+    // Solid sphere
+    const sphere=new THREE.Mesh(new THREE.SphereGeometry(0.012,16,12),new THREE.MeshBasicMaterial({color,depthTest:false,depthWrite:false}));
+    sphere.renderOrder=1000;g.add(sphere);
+    // Outer ring for visibility
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(0.02,0.003,8,24),new THREE.MeshBasicMaterial({color,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
+    ring.renderOrder=1000;g.add(ring);
+    g.position.copy(pos);
+    return g;
   };
   const createMeasureLabel=(text,pos,color="#ff6600",size=0.06,noBg=false)=>{
     const canvas=document.createElement("canvas");canvas.width=192;canvas.height=48;
@@ -595,15 +599,14 @@ export default function RobotViewer(){
       // First click (or new measurement after previous completed): set start point
       clearMeasure();
       m.start=pt;m.end=null;
-      const marker=createMeasureMarker(pt);
+      const marker=createMeasureMarker(pt,0x22ee66); // green for start
       scene.add(marker);m.markers.push(marker);
     }else{
       // Second click: set end point and draw final result
       m.end=pt;
-      const marker=createMeasureMarker(pt);
+      const marker=createMeasureMarker(pt,0xff4444); // red for end
       scene.add(marker);m.markers.push(marker);
       updateMeasureLine(m.start,m.end,false);
-      // Don't reset m.start/m.end — keep result visible, allow camera rotation
     }
   },[measureMode,clearMeasure,updateMeasureLine]);
   // Measure mode: preview line while mouse moves after first click
