@@ -992,7 +992,7 @@ export default function RobotViewer(){
     if(e.button===1)midDown.current=false;
     else{mouseDown.current=false;if(linkDragRef.current){linkDragRef.current=null;clearDragAngle();}}
   },[clearDragAngle]);
-  const onWh=useCallback(e=>{camAngle.current.radius=Math.max(0.2,Math.min(20,camAngle.current.radius+e.deltaY*0.003));updateCam();},[updateCam]);
+  const onWh=useCallback(e=>{camAngle.current.radius=Math.max(0.05,Math.min(20,camAngle.current.radius*(1+e.deltaY*0.001)));updateCam();},[updateCam]);
 
   const processItems=useCallback(async dt=>{
     const fileMap=new Map(),arr=[];let urdf=null,urdfName="";const items=dt.items;
