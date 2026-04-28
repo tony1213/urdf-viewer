@@ -153,7 +153,7 @@ async function buildRobotScene(robot,fileMap){
       const stlFile=findFile(stlName);
       if(stlFile){file=stlFile;ext="stl";}
     }
-    if(!file)return null;
+    if(!file){console.warn("Mesh not found:",vis.filename);return null;}
     const mat=mkMat(vis.color);
     try{
       if(ext==="stl"){const g=loadSTL(await file.arrayBuffer());const m=new THREE.Mesh(g,mat);m.scale.set(...vis.scale);m.castShadow=m.receiveShadow=true;return m;}
