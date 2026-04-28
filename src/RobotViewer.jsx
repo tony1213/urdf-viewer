@@ -298,6 +298,10 @@ export default function RobotViewer(){
   const[lang,setLang]=useState("zh"); // "zh"|"en"
   const[gridSize,setGridSize]=useState(1.0); // meters per grid cell, total size = gridSize * 10
   const[useRadians,setUseRadians]=useState(false); // false=degrees, true=radians
+  const[tcpMode,setTcpMode]=useState(false); // TCP drag IK mode
+  const tcpMeshRef=useRef(null); // the TCP sphere mesh in scene
+  const tcpDragging=useRef(false);
+  const tcpPlaneRef=useRef(null); // drag plane
   const resizingRef=useRef(false);
   const handleRef=useRef(null);
 
@@ -396,6 +400,139 @@ export default function RobotViewer(){
 
   useEffect(()=>{if(!robotGroupRef.current)return;robotGroupRef.current.traverse(c=>{if(c.isMesh&&c.material&&!c.renderOrder)c.material.wireframe=wire;});},[wire]);
 
+  // ─── TCP IK: create/remove TCP sphere when mode toggles ──────
+  useEffect(()=>{
+    const scene=sceneRef.current;if(!scene)return;
+    // Remove old TCP mesh
+    if(tcpMeshRef.current){scene.remove(tcpMeshRef.current);tcpMeshRef.current=null;}
+    if(!tcpMode||!robot)return;
+    // Find end-effector: the link that is never a parent in any joint
+    const parentLinks=new Set(Object.values(robot.joints).map(j=>j.parent));
+    const eefLink=Object.keys(robot.links).find(l=>!parentLinks.has(l))||Object.keys(robot.links).slice(-1)[0];
+    const eefObj=linkObjRef.current[eefLink];
+    if(!eefObj)return;
+    // Get world position of eef
+    eefObj.updateWorldMatrix(true,false);
+    const pos=new THREE.Vector3();eefObj.getWorldPosition(pos);
+    // Create TCP sphere
+    const mat=new THREE.MeshPhysicalMaterial({color:0xff6600,emissive:0xff3300,emissiveIntensity:0.4,metalness:0.3,roughness:0.3,transparent:true,opacity:0.85});
+    const mesh=new THREE.Mesh(new THREE.SphereGeometry(0.04,16,12),mat);
+    mesh.position.copy(pos);
+    mesh.userData.isTCP=true;
+    scene.add(mesh);
+    tcpMeshRef.current=mesh;
+  },[tcpMode,robot]);
+
+  // ─── CCD IK solver ───────────────────────────────────────────
+  const solveIK=useCallback((targetWorld)=>{
+    if(!robot)return;
+    // Build joint chain (revolute/continuous only, no fixed/prismatic)
+    const chain=Object.entries(jointObjRef.current)
+      .filter(([,o])=>o.userData.jointType==="revolute"||o.userData.jointType==="continuous")
+      .map(([name,obj])=>({name,obj}));
+    if(chain.length===0)return;
+    // Find end-effector link object
+    const parentLinks=new Set(Object.values(robot.joints).map(j=>j.parent));
+    const eefLink=Object.keys(robot.links).find(l=>!parentLinks.has(l))||Object.keys(robot.links).slice(-1)[0];
+    const eefObj=linkObjRef.current[eefLink];
+    if(!eefObj)return;
+    // CCD: iterate from end to base
+    for(let iter=0;iter<20;iter++){
+      eefObj.updateWorldMatrix(true,false);
+      const eefPos=new THREE.Vector3();eefObj.getWorldPosition(eefPos);
+      if(eefPos.distanceTo(targetWorld)<0.003)break;
+      // Iterate joints from end-effector toward base
+      for(let i=chain.length-1;i>=0;i--){
+        const{name,obj}=chain[i];
+        const{axis,lower,upper,initQuat}=obj.userData;
+        // Get joint world position and world axis
+        obj.updateWorldMatrix(true,false);
+        const jPos=new THREE.Vector3();obj.getWorldPosition(jPos);
+        const worldAxis=axis.clone().transformDirection(obj.matrixWorld).normalize();
+        // Get current eef world pos
+        eefObj.updateWorldMatrix(true,false);
+        const ep=new THREE.Vector3();eefObj.getWorldPosition(ep);
+        // Vectors from joint to eef and to target (projected onto plane perpendicular to axis)
+        const toEef=ep.clone().sub(jPos);
+        const toTgt=targetWorld.clone().sub(jPos);
+        // Project onto plane perpendicular to worldAxis
+        const projEef=toEef.clone().addScaledVector(worldAxis,-toEef.dot(worldAxis));
+        const projTgt=toTgt.clone().addScaledVector(worldAxis,-toTgt.dot(worldAxis));
+        if(projEef.length()<0.0001||projTgt.length()<0.0001)continue;
+        projEef.normalize();projTgt.normalize();
+        // Angle between projections
+        let angle=Math.acos(Math.max(-1,Math.min(1,projEef.dot(projTgt))));
+        const cross=projEef.clone().cross(projTgt);
+        if(cross.dot(worldAxis)<0)angle=-angle;
+        // Apply delta to current joint value
+        const cur=obj.userData.value;
+        const next=Math.max(lower,Math.min(upper,cur+angle));
+        if(Math.abs(next-cur)>1e-6){
+          // Apply rotation: initQuat * rotAxis(angle)
+          const deltaQ=new THREE.Quaternion().setFromAxisAngle(axis,next);
+          obj.quaternion.copy(initQuat).multiply(deltaQ);
+          obj.userData.value=next;
+        }
+      }
+    }
+    // Sync React state
+    const newVals={};
+    for(const{name,obj}of chain)newVals[name]=obj.userData.value;
+    setJointVals(prev=>({...prev,...newVals}));
+  },[robot]);
+
+  // ─── TCP drag: mouse events on canvas ────────────────────────
+  useEffect(()=>{
+    const cv=canvasRef.current;if(!cv)return;
+    const onDown=e=>{
+      if(e.button!==0)return;
+      if(!tcpMode||!tcpMeshRef.current)return;
+      // Check if click hits TCP sphere
+      const rect=cv.getBoundingClientRect();
+      const mouse=new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1);
+      const rc=new THREE.Raycaster();rc.setFromCamera(mouse,cameraRef.current);
+      const hits=rc.intersectObject(tcpMeshRef.current,false);
+      if(hits.length>0){
+        tcpDragging.current=true;
+        e.stopPropagation();
+        // Create drag plane: perpendicular to camera, through TCP position
+        const camDir=new THREE.Vector3();cameraRef.current.getWorldDirection(camDir);
+        const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(camDir,hits[0].point);
+        tcpPlaneRef.current=plane;
+        cv.style.cursor="grabbing";
+      }
+    };
+    cv.addEventListener("mousedown",onDown,{capture:true});
+    return()=>cv.removeEventListener("mousedown",onDown,{capture:true});
+  },[tcpMode]);
+
+  useEffect(()=>{
+    const cv=canvasRef.current;if(!cv)return;
+    const onMove=e=>{
+      if(!tcpDragging.current||!tcpMeshRef.current||!tcpPlaneRef.current)return;
+      const rect=cv.getBoundingClientRect();
+      const mouse=new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1);
+      const rc=new THREE.Raycaster();rc.setFromCamera(mouse,cameraRef.current);
+      const pt=new THREE.Vector3();
+      rc.ray.intersectPlane(tcpPlaneRef.current,pt);
+      if(!pt)return;
+      // Move TCP sphere
+      tcpMeshRef.current.position.copy(pt);
+      // Run IK
+      solveIK(pt);
+    };
+    cv.addEventListener("mousemove",onMove);
+    return()=>cv.removeEventListener("mousemove",onMove);
+  },[tcpMode,solveIK]);
+
+  useEffect(()=>{
+    const onUp=()=>{
+      if(tcpDragging.current){tcpDragging.current=false;if(canvasRef.current)canvasRef.current.style.cursor=tcpMode?"crosshair":"grab";}
+    };
+    window.addEventListener("mouseup",onUp);
+    return()=>window.removeEventListener("mouseup",onUp);
+  },[tcpMode]);
+
   const loadURDF=useCallback(async(urdfStr,fileMap=new Map())=>{
     try{
       setError(null);setLoading(true);setLoadMsg("解析 URDF...");
@@ -487,8 +624,8 @@ export default function RobotViewer(){
       camAngle.current.phi=Math.max(0.1,Math.min(Math.PI-0.1,camAngle.current.phi+dy*0.005));
       updateCam();
     }
-    // Raycasting for hover — only when not dragging
-    if(!mouseDown.current&&!midDown.current&&sceneRef.current&&cameraRef.current&&robotGroupRef.current){
+    // Raycasting for hover — only when not dragging and not in TCP mode
+    if(!mouseDown.current&&!midDown.current&&!tcpMode&&sceneRef.current&&cameraRef.current&&robotGroupRef.current){
       const cv=canvasRef.current;if(!cv)return;
       const rect=cv.getBoundingClientRect();
       const mouse=new THREE.Vector2(
@@ -585,7 +722,7 @@ export default function RobotViewer(){
 
       {/* Canvas */}
       <div style={{flex:1,position:"relative",minWidth:0}}>
-        <canvas ref={canvasRef} style={{width:"100%",height:"100%",cursor:hoverInfo?"crosshair":"grab",background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
+        <canvas ref={canvasRef} style={{width:"100%",height:"100%",cursor:tcpMode?"crosshair":hoverInfo?"crosshair":"grab",background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
@@ -603,6 +740,15 @@ export default function RobotViewer(){
             {darkMode?"☀":"🌙"}
           </TBtn>
           <div style={{height:1,background:C.border,margin:"2px 0"}}/>
+          {robot&&<TBtn active={tcpMode} onClick={()=>setTcpMode(v=>!v)} title={lang==="zh"?(tcpMode?"退出TCP拖动":"TCP拖动(IK)"):(tcpMode?"Exit TCP":"TCP Drag(IK)")} color="#ff6600">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <circle cx="9" cy="5" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+              <line x1="9" y1="7.5" x2="9" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <line x1="6" y1="10" x2="9" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <line x1="12" y1="10" x2="9" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <circle cx="9" cy="16" r="1.5" fill="currentColor"/>
+            </svg>
+          </TBtn>}
           <TBtn active={showJointAxes} onClick={()=>setShowJointAxes(!showJointAxes)} title={T.jointAxes} color="#ffaa00">
             <svg width="18" height="18" viewBox="0 0 18 18">
               <line x1="4" y1="14" x2="16" y2="14" stroke="#ff4444" strokeWidth="2" strokeLinecap="round"/>
