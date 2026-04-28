@@ -307,6 +307,7 @@ export default function RobotViewer(){
   const dragAngleRef=useRef({arc:null,label:null}); // single joint angle marker during link drag
   // Per-link opacity: map of linkName -> opacity (0-1)
   const[linkOpacities,setLinkOpacities]=useState({});
+  const[linkColors,setLinkColors]=useState({}); // linkName -> hex color string
   const[sidebarTab,setSidebarTab]=useState("joints"); // "joints"|"files"|"tree"
   const[sidebarWidth,setSidebarWidth]=useState(320);
   const[darkMode,setDarkMode]=useState(false);
@@ -674,6 +675,26 @@ export default function RobotViewer(){
       });
     }
   },[linkOpacities]);
+
+  // Per-link color effect
+  useEffect(()=>{
+    const lo=linkObjRef.current;
+    for(const[linkName,group]of Object.entries(lo)){
+      const color=linkColors[linkName];
+      group.traverse(c=>{
+        if(c.isMesh&&c.material&&!c.renderOrder){
+          if(color){
+            // Store original color on first assignment
+            if(!c.userData.origColor)c.userData.origColor=c.material.color.getHex();
+            c.material.color.set(color);c.material.needsUpdate=true;
+          }else if(c.userData.origColor!==undefined){
+            // Restore original color
+            c.material.color.setHex(c.userData.origColor);c.material.needsUpdate=true;
+          }
+        }
+      });
+    }
+  },[linkColors]);
 
   useEffect(()=>{if(!robotGroupRef.current)return;robotGroupRef.current.traverse(c=>{if(c.isMesh&&c.material&&!c.renderOrder)c.material.wireframe=wire;});},[wire]);
 
@@ -1442,17 +1463,27 @@ export default function RobotViewer(){
                   <button className="cb" onClick={()=>{const lo={};for(const ln of linkNames)lo[ln]=0.3;setLinkOpacities(lo);}} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.halfTrans}</button>
                   <button className="cb" onClick={()=>{const lo={};for(const ln of linkNames)lo[ln]=0;setLinkOpacities(lo);}} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.hideAll}</button>
                 </div>
+                {Object.keys(linkColors).length>0&&(
+                  <div style={{padding:"4px 20px 8px",borderBottom:`1px solid ${C.border}`}}>
+                    <button className="cb" onClick={()=>setLinkColors({})} style={{width:"100%",padding:"4px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{lang==="zh"?"重置所有颜色":"Reset Colors"}</button>
+                  </div>
+                )}
                 {linkNames.map(ln=>{
                   const op=linkOpacities[ln]??1;
                   const hasI=robot.links[ln]?.inertial;
+                  const lc=linkColors[ln]||"";
                   return(
-                    <div key={ln} className="lk-row" style={{padding:"8px 20px",borderBottom:`1px solid ${C.border}22`,display:"flex",alignItems:"center",gap:10}}>
+                    <div key={ln} className="lk-row" style={{padding:"8px 20px",borderBottom:`1px solid ${C.border}22`,display:"flex",alignItems:"center",gap:8}}>
+                      <input type="color" value={lc||"#999999"}
+                        onChange={e=>setLinkColors(prev=>({...prev,[ln]:e.target.value}))}
+                        title={lang==="zh"?"指定颜色":"Set color"}
+                        style={{width:18,height:18,padding:0,border:`2px solid ${lc?lc:C.border}`,borderRadius:"50%",cursor:"pointer",appearance:"none",WebkitAppearance:"none",background:lc||C.dim,flexShrink:0,overflow:"hidden"}}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:11,fontWeight:600,color:op>0?C.text:C.dim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={ln}>{ln}</div>
                         {hasI&&<div style={{fontSize:9,color:C.dim}}>m={hasI.mass.toFixed(3)}kg</div>}
                       </div>
                       <input type="range" min={0} max={1} step={0.05} value={op} onChange={e=>setLinkOpacities(prev=>({...prev,[ln]:+e.target.value}))}
-                        style={{width:80,appearance:"none",WebkitAppearance:"none",height:3,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
+                        style={{width:70,appearance:"none",WebkitAppearance:"none",height:3,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
                       <span style={{fontSize:10,color:op>0.5?C.accent:C.dim,fontVariantNumeric:"tabular-nums",width:28,textAlign:"right"}}>{(op*100).toFixed(0)}%</span>
                     </div>
                   );
@@ -1480,7 +1511,7 @@ export default function RobotViewer(){
 
           <button className="rb" style={{padding:"8px 16px",margin:"8px 20px 4px",background:`${C.danger}22`,border:`1px solid ${C.danger}44`,borderRadius:6,color:C.danger,fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",textAlign:"center"}} onClick={resetJoints}>{T.resetJoints}</button>
           <button className="rb" style={{padding:"8px 16px",margin:"0 20px 10px",background:`${C.accent}22`,border:`1px solid ${C.accent}44`,borderRadius:6,color:C.accent,fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",textAlign:"center"}}
-            onClick={()=>{if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);offsetGroupRef.current=null;worldGroupRef.current=null;robotGroupRef.current=null;jointObjRef.current={};linkObjRef.current={};comRef.current=[];inertiaRef.current=[];axisRef.current=[];setRobot(null);setJointVals({});setFiles([]);setLinkOpacities({});lookTarget.current.set(0,0.3,0);camAngle.current={theta:Math.PI/4,phi:Math.PI/3,radius:2};updateCam();}}>{T.unload}</button>
+            onClick={()=>{if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);offsetGroupRef.current=null;worldGroupRef.current=null;robotGroupRef.current=null;jointObjRef.current={};linkObjRef.current={};comRef.current=[];inertiaRef.current=[];axisRef.current=[];setRobot(null);setJointVals({});setFiles([]);setLinkOpacities({});setLinkColors({});lookTarget.current.set(0,0.3,0);camAngle.current={theta:Math.PI/4,phi:Math.PI/3,radius:2};updateCam();}}>{T.unload}</button>
         </>)}
       </div>
 
