@@ -317,6 +317,9 @@ export default function RobotViewer(){
   const useRadiansRef=useRef(false);
   useEffect(()=>{useRadiansRef.current=useRadians;},[useRadians]);
   const[tcpMode,setTcpMode]=useState(false); // TCP drag IK mode
+  const[measureMode,setMeasureMode]=useState(false); // measure distance mode
+  const measureRef=useRef({start:null,end:null,line:null,markers:[],labels:[]}); // measure objects in scene
+  const measureModeRef=useRef(false);
   const tcpMeshRef=useRef(null); // the TCP sphere mesh in scene
   const tcpDragging=useRef(false);
   const tcpPlaneRef=useRef(null); // drag plane
@@ -328,6 +331,7 @@ export default function RobotViewer(){
 
   useEffect(()=>{robotRef.current=robot;},[robot]);
   useEffect(()=>{tcpModeRef.current=tcpMode;},[tcpMode]);
+  useEffect(()=>{measureModeRef.current=measureMode;},[measureMode]);
   const updateCam=useCallback(()=>{if(!cameraRef.current)return;const{theta,phi,radius}=camAngle.current,t=lookTarget.current;cameraRef.current.position.set(t.x+radius*Math.sin(phi)*Math.cos(theta),t.y+radius*Math.cos(phi),t.z+radius*Math.sin(phi)*Math.sin(theta));cameraRef.current.lookAt(t);},[]);
 
   // Sidebar resize — native events + fullscreen overlay to prevent canvas from stealing mouse
@@ -494,6 +498,119 @@ export default function RobotViewer(){
     scene.add(sprite);ref.label=sprite;
   },[]);
   const clearDragAngle=useCallback(()=>{showDragAngle(null);},[showDragAngle]);
+
+  // ─── Measure tool ─────────────────────────────────────────────
+  const clearMeasure=useCallback(()=>{
+    const scene=sceneRef.current;if(!scene)return;
+    const m=measureRef.current;
+    if(m.line){scene.remove(m.line);m.line=null;}
+    for(const mk of m.markers){scene.remove(mk);}m.markers=[];
+    for(const lb of m.labels){scene.remove(lb);}m.labels=[];
+    m.start=null;m.end=null;
+  },[]);
+  const createMeasureMarker=(pos,color=0xff6600)=>{
+    const geo=new THREE.SphereGeometry(0.008,12,8);
+    const mat=new THREE.MeshBasicMaterial({color,depthTest:false,depthWrite:false});
+    const mesh=new THREE.Mesh(geo,mat);mesh.renderOrder=1000;
+    mesh.position.copy(pos);
+    return mesh;
+  };
+  const createMeasureLabel=(text,pos,color="#ff6600",size=0.12)=>{
+    const canvas=document.createElement("canvas");canvas.width=256;canvas.height=64;
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle="rgba(0,0,0,0.75)";ctx.beginPath();ctx.roundRect(2,6,canvas.width-4,canvas.height-12,10);ctx.fill();
+    ctx.fillStyle=color;ctx.font="bold 28px monospace";ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.fillText(text,canvas.width/2,canvas.height/2);
+    const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),transparent:true,depthTest:false,depthWrite:false,sizeAttenuation:true}));
+    sprite.scale.set(size,size*0.25,1);sprite.renderOrder=1001;
+    sprite.position.copy(pos);
+    return sprite;
+  };
+  const updateMeasureLine=useCallback((startPt,endPt)=>{
+    const scene=sceneRef.current;if(!scene)return;
+    const m=measureRef.current;
+    // Remove old line and labels
+    if(m.line){scene.remove(m.line);m.line=null;}
+    for(const lb of m.labels){scene.remove(lb);}m.labels=[];
+    // Main line (orange dashed)
+    const lineGeo=new THREE.BufferGeometry().setFromPoints([startPt,endPt]);
+    const lineMat=new THREE.LineDashedMaterial({color:0xff6600,dashSize:0.02,gapSize:0.01,depthTest:false,depthWrite:false,transparent:true});
+    const line=new THREE.Line(lineGeo,lineMat);
+    line.computeLineDistances();line.renderOrder=999;
+    scene.add(line);m.line=line;
+    // XYZ component lines
+    const dx=endPt.x-startPt.x,dy=endPt.y-startPt.y,dz=endPt.z-startPt.z;
+    const dist=startPt.distanceTo(endPt);
+    // X component (red)
+    const xEnd=new THREE.Vector3(endPt.x,startPt.y,startPt.z);
+    const xGeo=new THREE.BufferGeometry().setFromPoints([startPt,xEnd]);
+    const xLine=new THREE.Line(xGeo,new THREE.LineBasicMaterial({color:0xff4444,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
+    xLine.renderOrder=999;scene.add(xLine);m.labels.push(xLine);
+    // Y component (green)
+    const yEnd=new THREE.Vector3(endPt.x,endPt.y,startPt.z);
+    const yGeo=new THREE.BufferGeometry().setFromPoints([xEnd,yEnd]);
+    const yLine=new THREE.Line(yGeo,new THREE.LineBasicMaterial({color:0x44ff44,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
+    yLine.renderOrder=999;scene.add(yLine);m.labels.push(yLine);
+    // Z component (blue)
+    const zGeo=new THREE.BufferGeometry().setFromPoints([yEnd,endPt]);
+    const zLine=new THREE.Line(zGeo,new THREE.LineBasicMaterial({color:0x4488ff,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
+    zLine.renderOrder=999;scene.add(zLine);m.labels.push(zLine);
+    // Distance label at midpoint
+    const mid=new THREE.Vector3().addVectors(startPt,endPt).multiplyScalar(0.5);
+    mid.y+=0.04;
+    const distLabel=createMeasureLabel(`${dist.toFixed(3)}m`,mid,"#ff6600",0.14);
+    scene.add(distLabel);m.labels.push(distLabel);
+    // XYZ component labels
+    if(Math.abs(dx)>0.005){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y-0.025,startPt.z);const xl=createMeasureLabel(`X:${dx.toFixed(3)}`,xMid,"#ff4444",0.1);scene.add(xl);m.labels.push(xl);}
+    if(Math.abs(dy)>0.005){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`Y:${dy.toFixed(3)}`,yMid,"#44ff44",0.1);scene.add(yl);m.labels.push(yl);}
+    if(Math.abs(dz)>0.005){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`Z:${dz.toFixed(3)}`,zMid,"#4488ff",0.1);scene.add(zl);m.labels.push(zl);}
+  },[]);
+  // Measure mode click handler
+  const handleMeasureClick=useCallback((e)=>{
+    if(!measureMode||!robotGroupRef.current||!cameraRef.current)return;
+    const cv=canvasRef.current;if(!cv)return;
+    const rect=cv.getBoundingClientRect();
+    const mouse=new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1);
+    if(!raycasterRef.current)raycasterRef.current=new THREE.Raycaster();
+    raycasterRef.current.setFromCamera(mouse,cameraRef.current);
+    const hits=raycasterRef.current.intersectObject(robotGroupRef.current,true);
+    const hit=hits.find(h=>h.object.userData.linkName);
+    if(!hit)return;
+    const scene=sceneRef.current;if(!scene)return;
+    const m=measureRef.current;
+    const pt=hit.point.clone();
+    if(!m.start){
+      // First click: set start point
+      clearMeasure();
+      m.start=pt;
+      const marker=createMeasureMarker(pt);
+      scene.add(marker);m.markers.push(marker);
+    }else{
+      // Second click: set end point and draw
+      m.end=pt;
+      const marker=createMeasureMarker(pt);
+      scene.add(marker);m.markers.push(marker);
+      updateMeasureLine(m.start,m.end);
+      m.start=null; // reset for next measurement
+    }
+  },[measureMode,clearMeasure,updateMeasureLine]);
+  // Measure mode: preview line while mouse moves after first click
+  const handleMeasurePreview=useCallback((e)=>{
+    if(!measureMode||!measureRef.current.start||measureRef.current.end)return;
+    if(!robotGroupRef.current||!cameraRef.current)return;
+    const cv=canvasRef.current;if(!cv)return;
+    const rect=cv.getBoundingClientRect();
+    const mouse=new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1);
+    if(!raycasterRef.current)raycasterRef.current=new THREE.Raycaster();
+    raycasterRef.current.setFromCamera(mouse,cameraRef.current);
+    const hits=raycasterRef.current.intersectObject(robotGroupRef.current,true);
+    const hit=hits.find(h=>h.object.userData.linkName);
+    if(hit){
+      updateMeasureLine(measureRef.current.start,hit.point.clone());
+    }
+  },[measureMode,updateMeasureLine]);
+  // Clear measure when mode is turned off
+  useEffect(()=>{if(!measureMode)clearMeasure();},[measureMode,clearMeasure]);
 
   // Per-link opacity effect
   useEffect(()=>{
@@ -720,6 +837,11 @@ export default function RobotViewer(){
         midDown.current=true; lastM.current={x:e.clientX,y:e.clientY}; return;
       }
       if(e.button===0&&e.target.tagName!=="INPUT"){
+        // Measure mode: handle click for measurement points
+        if(measureModeRef.current){
+          // Don't start camera rotation, let handleMeasureClick handle it
+          return;
+        }
         // If hovering a link with controllable parent joint, start link drag
         const ln=hoveredLinkRef.current;
         if(ln&&robotRef.current&&!tcpModeRef.current){
@@ -785,6 +907,10 @@ export default function RobotViewer(){
     }
     // Raycasting for hover — only when not dragging and not in TCP mode
     if(!mouseDown.current&&!midDown.current&&!linkDragRef.current&&!tcpMode&&sceneRef.current&&cameraRef.current&&robotGroupRef.current){
+      // Measure mode: preview line
+      if(measureMode&&measureRef.current.start&&!measureRef.current.end){
+        handleMeasurePreview(e);
+      }
       const cv=canvasRef.current;if(!cv)return;
       const rect=cv.getBoundingClientRect();
       const mouse=new THREE.Vector2(
@@ -804,7 +930,7 @@ export default function RobotViewer(){
         setHoverInfo(null);
       }
     }
-  },[updateCam,highlightLink,updateJoint,showDragAngle,tcpMode]);
+  },[updateCam,highlightLink,updateJoint,showDragAngle,tcpMode,measureMode,handleMeasurePreview]);
   const onMU=useCallback(e=>{
     if(e.button===1)midDown.current=false;
     else{mouseDown.current=false;if(linkDragRef.current){linkDragRef.current=null;clearDragAngle();}}
@@ -857,7 +983,7 @@ export default function RobotViewer(){
     coordSys:"坐标系 (Up Axis)",heightOffset:"模型高度偏移",autoGround:"⬇ 自动落地",viewPresets:"视角预设",
     front:"前",back:"后",left:"左",right:"右",top:"上",persp:"透视",
     urdfTree:"🔗 URDF 树",folderTree:"📁 文件夹",noFolderData:"无文件夹数据",
-    loadedFiles:"已加载文件",gridSizeLabel:"网格大小",urdfTab:"URDF",degUnit:"角度",radUnit:"弧度",accentLabel:"主题色",
+    loadedFiles:"已加载文件",gridSizeLabel:"网格大小",urdfTab:"URDF",degUnit:"角度",radUnit:"弧度",accentLabel:"主题色",measure:"测量",
   }:{
     jointCtrl:"Joints",jointOpacity:"Opacity",folder:"Files",noJoints:"No controllable joints",
     showAll:"Show All",halfTrans:"Semi-Trans",hideAll:"Hide All",resetJoints:"↺ Reset Joints",unload:"✕ Unload",
@@ -870,7 +996,7 @@ export default function RobotViewer(){
     coordSys:"Coord System (Up Axis)",heightOffset:"Model Height Offset",autoGround:"⬇ Auto Ground",viewPresets:"View Presets",
     front:"Front",back:"Back",left:"Left",right:"Right",top:"Top",persp:"Persp",
     urdfTree:"🔗 URDF Tree",folderTree:"📁 Folder",noFolderData:"No folder data",
-    loadedFiles:"Loaded Files",gridSizeLabel:"Grid Size",urdfTab:"URDF",degUnit:"Degrees",radUnit:"Radians",accentLabel:"Accent",
+    loadedFiles:"Loaded Files",gridSizeLabel:"Grid Size",urdfTab:"URDF",degUnit:"Degrees",radUnit:"Radians",accentLabel:"Accent",measure:"Measure",
   };
 
   const TBtn=({active,onClick,children,title,color})=>(
@@ -899,10 +1025,11 @@ export default function RobotViewer(){
       {/* Canvas */}
       <div style={{flex:1,position:"relative",minWidth:0}}>
         <canvas ref={canvasRef} style={{width:"100%",height:"100%",
-          cursor:tcpMode?"crosshair":
+          cursor:measureMode?"crosshair":
+            tcpMode?"crosshair":
             linkDragRef.current?"ew-resize":
             (hoverInfo&&robot&&Object.values(robot.joints).find(j=>j.child===hoverInfo.linkName&&j.type!=="fixed"))?"ew-resize":"grab",
-          background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;if(linkDragRef.current){linkDragRef.current=null;clearDragAngle();}highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
+          background:darkMode?"#0a0e17":"#f0f4f8"}} onClick={measureMode?handleMeasureClick:undefined} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;if(linkDragRef.current){linkDragRef.current=null;clearDragAngle();}highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
@@ -927,6 +1054,16 @@ export default function RobotViewer(){
               <line x1="6" y1="10" x2="9" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               <line x1="12" y1="10" x2="9" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               <circle cx="9" cy="16" r="1.5" fill="currentColor"/>
+            </svg>
+          </TBtn>}
+          {robot&&<TBtn active={measureMode} onClick={()=>{setMeasureMode(v=>!v);if(tcpMode)setTcpMode(false);}} title={T.measure} color="#f97316">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <line x1="3" y1="15" x2="15" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <circle cx="3" cy="15" r="2" fill="currentColor"/>
+              <circle cx="15" cy="3" r="2" fill="currentColor"/>
+              <line x1="6" y1="15" x2="6" y2="12" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              <line x1="9" y1="13" x2="9" y2="10" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              <line x1="12" y1="10" x2="12" y2="7" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
             </svg>
           </TBtn>}
           <TBtn active={showJointAxes} onClick={()=>setShowJointAxes(!showJointAxes)} title={T.jointAxes} color="#ffaa00">
