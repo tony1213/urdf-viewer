@@ -792,40 +792,40 @@ export default function RobotViewer(){
                 {jEntries.map(([name,value])=>{
                   const o=jointObjRef.current[name];if(!o)return null;
                   const{lower,upper,jointType}=o.userData;
-                  // Convert for display
-                  const r2d=v=>v*(180/Math.PI);
-                  const d2r=v=>v*(Math.PI/180);
                   const isPrismatic=jointType==="prismatic";
-                  // For prismatic joints: always show meters, no deg/rad
-                  const dispVal=(!isPrismatic&&!useRadians)?r2d(value):value;
-                  const dispLo=(!isPrismatic&&!useRadians)?r2d(lower):lower;
-                  const dispHi=(!isPrismatic&&!useRadians)?r2d(upper):upper;
+                  const r2d=v=>+(v*(180/Math.PI)).toFixed(2);
+                  const d2r=v=>v*(Math.PI/180);
+                  const dispVal=(!isPrismatic&&!useRadians)?r2d(value):+value.toFixed(4);
+                  const dispLo=(!isPrismatic&&!useRadians)?r2d(lower):+lower.toFixed(4);
+                  const dispHi=(!isPrismatic&&!useRadians)?r2d(upper):+upper.toFixed(4);
                   const unit=isPrismatic?"m":useRadians?"rad":"°";
+                  const commitInput=(raw)=>{
+                    const num=parseFloat(raw);
+                    if(isNaN(num))return;
+                    const rad=(!isPrismatic&&!useRadians)?d2r(num):num;
+                    updateJoint(name,Math.max(lower,Math.min(upper,rad)));
+                  };
                   return(
                     <div key={name} className="ji" style={{padding:"10px 20px",borderBottom:`1px solid ${C.border}`}}>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
                         <span style={{fontSize:9,color:C.dim,textTransform:"uppercase",letterSpacing:"0.08em",flexShrink:0}}>{jointType}</span>
                         <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,color:C.text}} title={name}>{name}</span>
                       </div>
-                      {/* Slider */}
-                      <input type="range" style={{width:"100%",appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer",marginBottom:4}}
-                        min={lower} max={upper} step={isPrismatic?0.001:0.001} value={value}
+                      <input type="range" style={{width:"100%",appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer",marginBottom:6}}
+                        min={lower} max={upper} step={0.001} value={value}
                         onChange={e=>updateJoint(name,+e.target.value)}/>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:10,color:C.dim,minWidth:40}}>{dispLo.toFixed(1)}{unit}</span>
-                        {/* Input box */}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:10,color:C.dim,minWidth:38,flexShrink:0}}>{dispLo}{unit}</span>
                         <input type="number"
-                          style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,color:C.accent,fontSize:11,fontWeight:600,textAlign:"center",padding:"2px 4px",outline:"none",fontFamily:"inherit",minWidth:0,WebkitAppearance:"none",MozAppearance:"textfield"}}
-                          step={(!isPrismatic&&!useRadians)?0.1:0.001}
-                          value={dispVal.toFixed(!isPrismatic&&!useRadians?1:3)}
-                          onChange={e=>{
-                            const raw=parseFloat(e.target.value);
-                            if(isNaN(raw))return;
-                            const rad=(!isPrismatic&&!useRadians)?d2r(raw):raw;
-                            const clamped=Math.max(lower,Math.min(upper,rad));
-                            updateJoint(name,clamped);
-                          }}/>
-                        <span style={{fontSize:10,color:C.dim,minWidth:40,textAlign:"right"}}>{dispHi.toFixed(1)}{unit}</span>
+                          key={`${name}-${useRadians}`}
+                          defaultValue={dispVal}
+                          style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,color:C.accent,fontSize:11,fontWeight:600,textAlign:"center",padding:"3px 4px",outline:"none",fontFamily:"inherit",minWidth:0,WebkitAppearance:"none",MozAppearance:"textfield"}}
+                          step={(!isPrismatic&&!useRadians)?1:0.01}
+                          onFocus={e=>e.target.select()}
+                          onBlur={e=>commitInput(e.target.value)}
+                          onKeyDown={e=>{if(e.key==="Enter"){commitInput(e.target.value);e.target.blur();}if(e.key==="Escape"){e.target.value=String(dispVal);e.target.blur();}}}
+                        />
+                        <span style={{fontSize:10,color:C.dim,minWidth:38,flexShrink:0,textAlign:"right"}}>{dispHi}{unit}</span>
                       </div>
                     </div>
                   );
