@@ -178,7 +178,7 @@ const C_DARK={bg:"#0a0e17",panel:"#111827",border:"#1e293b",accent:"#22d3ee",acc
 const C_LIGHT={bg:"#f0f4f8",panel:"#ffffff",border:"#d1d9e0",accent:"#0891b2",accentDim:"#0e7490",text:"#1e293b",dim:"#64748b",danger:"#f43f5e"};
 
 // ─── FolderNode component ────────────────────────────────────
-function FolderNode({node,name,depth=0}){
+function FolderNode({node,name,depth=0,C=C_DARK}){
   const[open,setOpen]=useState(depth<2);
   const dirs=Object.keys(node).filter(k=>!k.startsWith("__"));
   const files=node.__files||[];
@@ -193,7 +193,7 @@ function FolderNode({node,name,depth=0}){
         </div>
       )}
       {(open||name==="root")&&(<>
-        {dirs.map(d=><FolderNode key={d} node={node[d]} name={d} depth={depth+1}/>)}
+        {dirs.map(d=><FolderNode key={d} node={node[d]} name={d} depth={depth+1} C={C}/>)}
         {files.map((f,i)=>(
           <div key={i} style={{paddingLeft:(depth+1)*12,padding:"1px 0",fontSize:11,color:C.dim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
             {extIcon(f)} {f}
@@ -658,15 +658,7 @@ export default function RobotViewer(){
             {/* ── Browser tab ── */}
             {sidebarTab==="tree"&&(
               <div style={{padding:"8px 0"}}>
-                {/* Sub-tabs: folder vs URDF tree */}
-                <div style={{display:"flex",padding:"0 16px 8px",gap:6}}>
-                  {[{id:"folder",label:"📁 文件夹"},{id:"urdf",label:"🔗 URDF树"}].map(({id,label})=>{
-                    // Use a local state trick via data attribute
-                    const isActive = (sidebarTab==="tree" && document.querySelector(`[data-tree-view]`)?.dataset.treeView===id) || (!document.querySelector(`[data-tree-view]`) && id==="urdf");
-                    return null; // handled below
-                  })}
-                </div>
-                <TreeBrowser files={files} urdfTree={urdfTree} folderTree={folderTree} robot={robot} T={T}/>
+                <TreeBrowser files={files} urdfTree={urdfTree} folderTree={folderTree} robot={robot} T={T} C={C}/>
               </div>
             )}
           </div>
@@ -685,6 +677,7 @@ export default function RobotViewer(){
 
 // ─── URDF Tree Node (collapsible recursive) ─────────────────
 function URDFLinkNode({node,robot,depth=0}){
+  const C=C_DARK;
   const[open,setOpen]=useState(depth<4);
   const hasChildren=node.children&&node.children.length>0;
   const hasI=node.inertial;
@@ -703,6 +696,7 @@ function URDFLinkNode({node,robot,depth=0}){
   );
 }
 function URDFJointNode({joint,robot,depth}){
+  const C=C_DARK;
   const[open,setOpen]=useState(depth<3);
   const axisStr=joint.axis?`[${joint.axis.join(",")}]`:"";
   return(
@@ -719,25 +713,25 @@ function URDFJointNode({joint,robot,depth}){
 }
 
 // ─── Tree Browser sub-component ──────────────────────────────
-function TreeBrowser({files,urdfTree,folderTree,robot,T}){
+function TreeBrowser({files,urdfTree,folderTree,robot,T,C=C_DARK}){
   const[view,setView]=useState("urdf");
   return(
     <div>
       <div style={{display:"flex",padding:"0 16px 8px",gap:6}}>
-        <button className="cb" onClick={()=>setView("urdf")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${view==="urdf"?C_DARK.accent:C_DARK.border}`,background:view==="urdf"?`${C_DARK.accent}15`:C_DARK.bg,color:view==="urdf"?C_DARK.accent:C_DARK.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.urdfTree}</button>
-        <button className="cb" onClick={()=>setView("folder")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${view==="folder"?C_DARK.accent:C_DARK.border}`,background:view==="folder"?`${C_DARK.accent}15`:C_DARK.bg,color:view==="folder"?C_DARK.accent:C_DARK.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.folderTree}</button>
+        <button className="cb" onClick={()=>setView("urdf")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${view==="urdf"?C.accent:C.border}`,background:view==="urdf"?`${C.accent}15`:C.bg,color:view==="urdf"?C.accent:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.urdfTree}</button>
+        <button className="cb" onClick={()=>setView("folder")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${view==="folder"?C.accent:C.border}`,background:view==="folder"?`${C.accent}15`:C.bg,color:view==="folder"?C.accent:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.folderTree}</button>
       </div>
       {view==="urdf"&&urdfTree&&(
         <div style={{padding:"0 4px"}}><URDFLinkNode node={urdfTree} robot={robot} depth={0}/></div>
       )}
       {view==="urdf"&&!urdfTree&&(
-        <div style={{padding:20,textAlign:"center",color:C_DARK.dim,fontSize:12}}>{T.noFolderData}</div>
+        <div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>{T.noFolderData}</div>
       )}
       {view==="folder"&&folderTree&&(
-        <div style={{padding:"0 8px"}}><FolderNode node={folderTree} name="root" depth={0}/></div>
+        <div style={{padding:"0 8px"}}><FolderNode node={folderTree} name="root" depth={0} C={C}/></div>
       )}
       {view==="folder"&&!folderTree&&(
-        <div style={{padding:20,textAlign:"center",color:C_DARK.dim,fontSize:12}}>{T.noFolderData}</div>
+        <div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>{T.noFolderData}</div>
       )}
     </div>
   );
