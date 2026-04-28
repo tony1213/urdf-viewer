@@ -561,26 +561,18 @@ export default function RobotViewer(){
     // XYZ component lines and labels — only on final (non-preview)
     if(!preview){
       const dx=endPt.x-startPt.x,dy=endPt.y-startPt.y,dz=endPt.z-startPt.z;
-      const makeAxisTube=(from,to,color)=>{
-        const len=from.distanceTo(to);if(len<0.001)return null;
-        const dir=new THREE.Vector3().subVectors(to,from).normalize();
-        const geo=new THREE.CylinderGeometry(0.002,0.002,len,6);
-        geo.rotateX(Math.PI/2);
-        const mat=new THREE.MeshBasicMaterial({color,depthTest:false,depthWrite:false,transparent:true,opacity:0.85});
-        const mesh=new THREE.Mesh(geo,mat);
-        mesh.position.copy(from).lerp(to,0.5);
-        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),dir);
-        mesh.renderOrder=999;
-        return mesh;
+      const makeDashedLine=(from,to,color)=>{
+        const geo=new THREE.BufferGeometry().setFromPoints([from,to]);
+        const mat=new THREE.LineDashedMaterial({color,dashSize:0.008,gapSize:0.004,depthTest:false,depthWrite:false,transparent:true});
+        const line=new THREE.Line(geo,mat);
+        line.computeLineDistances();line.renderOrder=999;
+        return line;
       };
       const xEnd=new THREE.Vector3(endPt.x,startPt.y,startPt.z);
       const yEnd=new THREE.Vector3(endPt.x,endPt.y,startPt.z);
-      const xTube=makeAxisTube(startPt,xEnd,0xff4444);if(xTube){scene.add(xTube);m.labels.push(xTube);}
-      const yTube=makeAxisTube(xEnd,yEnd,0x44ff44);if(yTube){scene.add(yTube);m.labels.push(yTube);}
-      const zTube=makeAxisTube(yEnd,endPt,0x4488ff);if(zTube){scene.add(zTube);m.labels.push(zTube);}
-      if(Math.abs(dx)>0.002){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y,startPt.z);const xl=createMeasureLabel(`${(dx*1000).toFixed(2)}`,xMid,"#ff4444",0.05,true);scene.add(xl);m.labels.push(xl);}
-      if(Math.abs(dy)>0.002){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`${(dy*1000).toFixed(2)}`,yMid,"#44ff44",0.05,true);scene.add(yl);m.labels.push(yl);}
-      if(Math.abs(dz)>0.002){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`${(dz*1000).toFixed(2)}`,zMid,"#4488ff",0.05,true);scene.add(zl);m.labels.push(zl);}
+      if(Math.abs(dx)>0.001){const xl=makeDashedLine(startPt,xEnd,0xff4444);scene.add(xl);m.labels.push(xl);const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y,startPt.z);const xLbl=createMeasureLabel(`${(dx*1000).toFixed(2)}`,xMid,"#ff4444",0.04,true);scene.add(xLbl);m.labels.push(xLbl);}
+      if(Math.abs(dy)>0.001){const yl=makeDashedLine(xEnd,yEnd,0x44ff44);scene.add(yl);m.labels.push(yl);const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yLbl=createMeasureLabel(`${(dy*1000).toFixed(2)}`,yMid,"#44ff44",0.04,true);scene.add(yLbl);m.labels.push(yLbl);}
+      if(Math.abs(dz)>0.001){const zl=makeDashedLine(yEnd,endPt,0x4488ff);scene.add(zl);m.labels.push(zl);const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zLbl=createMeasureLabel(`${(dz*1000).toFixed(2)}`,zMid,"#4488ff",0.04,true);scene.add(zLbl);m.labels.push(zLbl);}
     }
   },[]);
   // Snap hit point to nearest mesh vertex (world space)
