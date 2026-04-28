@@ -490,6 +490,13 @@ export default function RobotViewer(){
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
           <TBtn active={grid} onClick={()=>setGrid(!grid)} title={T.grid}>⊞</TBtn>
+          {grid&&(
+            <div style={{background:`${C.panel}ee`,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px",width:36,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <input type="range" min={0.1} max={5} step={0.1} value={gridSize} onChange={e=>setGridSize(+e.target.value)}
+                style={{width:60,transform:"rotate(-90deg)",transformOrigin:"center",margin:"18px 0",appearance:"none",WebkitAppearance:"none",height:3,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
+              <div style={{fontSize:8,color:C.dim}}>{gridSize.toFixed(1)}m</div>
+            </div>
+          )}
           <TBtn active={axes} onClick={()=>setAxes(!axes)} title={T.coordAxes}>✛</TBtn>
           <TBtn active={wire} onClick={()=>setWire(!wire)} title={T.wireframe}>△</TBtn>
           <TBtn active={!darkMode} onClick={()=>setDarkMode(!darkMode)} title={T.toggleBg} color={darkMode?C.accent:"#334155"}>
@@ -548,17 +555,7 @@ export default function RobotViewer(){
                   <button key={item.l} className="cb" onClick={()=>{camAngle.current.theta=item.th;camAngle.current.phi=item.ph;updateCam();}} style={{padding:"5px 4px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'JetBrains Mono',monospace"}}>{item.l}</button>
                 ))}
               </div>
-              {/* Grid size */}
-              <div style={{fontSize:11,fontWeight:700,color:C.text,marginTop:10,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>{T.gridSizeLabel}</div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <input type="range" min={0.1} max={5} step={0.1} value={gridSize} onChange={e=>setGridSize(+e.target.value)} style={{flex:1,appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
-                <span style={{fontSize:11,color:C.accent,fontVariantNumeric:"tabular-nums",minWidth:40,textAlign:"right"}}>{gridSize.toFixed(1)}m</span>
-              </div>
-              {/* Language toggle */}
-              <div style={{marginTop:10,display:"flex",gap:6}}>
-                <button className="cb" onClick={()=>setLang("zh")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${lang==="zh"?C.accent:C.border}`,background:lang==="zh"?`${C.accent}15`:C.bg,color:lang==="zh"?C.accent:C.dim,fontSize:11,fontWeight:600,cursor:"pointer"}}>中文</button>
-                <button className="cb" onClick={()=>setLang("en")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${lang==="en"?C.accent:C.border}`,background:lang==="en"?`${C.accent}15`:C.bg,color:lang==="en"?C.accent:C.dim,fontSize:11,fontWeight:600,cursor:"pointer"}}>EN</button>
-              </div>
+              {/* Grid size and language now in toolbar and header */}
             </div>
           )}
         </div>
@@ -578,7 +575,10 @@ export default function RobotViewer(){
       <div style={{width:sidebarWidth,flexShrink:0,background:C.panel,display:"flex",flexDirection:"column",overflow:"hidden",zIndex:10}}>
         <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:30,height:30,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",background:`linear-gradient(135deg,${C.accent},${C.accentDim})`,fontSize:15}}>🤖</div>
-          <div><div style={{fontSize:13,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:C.accent}}>Robot Viewer</div></div>
+          <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:C.accent}}>Robot Viewer</div></div>
+          <button onClick={()=>setLang(lang==="zh"?"en":"zh")} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+            {lang==="zh"?"EN":"中"}
+          </button>
         </div>
 
         {!robot?(
