@@ -11,39 +11,47 @@ function parseOBJ(text){const pos=[],nor=[],fv=[],fn=[];for(const line of text.s
 
 // ─── DAE ─────────────────────────────────────────────────────
 function parseDAE(text){
-  // Strip default namespace so querySelectorAll works (Collada uses xmlns="...")
-  const stripped=text.replace(/xmlns="[^"]*"/g,"").replace(/xmlns:[a-z]+="[^"]*"/g,"");
+  // Strip default namespace so querySelector works with Collada XML
+  const stripped=text.replace(/\sxmlns(:[a-zA-Z0-9_]+)?="[^"]*"/g,"");
   const doc=new DOMParser().parseFromString(stripped,"text/xml"),group=new THREE.Group(),fas={};
-  for(const el of doc.querySelectorAll("float_array")){const id=el.getAttribute("id");if(id)fas[id]=el.textContent.trim().split(/\s+/).map(Number);}
-  const getSrc=sid=>{const s=doc.getElementById(sid.replace("#",""));if(!s)return null;const f=s.querySelector("float_array");if(!f)return null;return fas[f.getAttribute("id")]||f.textContent.trim().split(/\s+/).map(Number);};
-  const upEl=doc.querySelector("up_axis");const isYup=upEl&&upEl.textContent.trim()==="Y_UP";
+  for(const el of doc.getElementsByTagName("float_array")){const id=el.getAttribute("id");if(id)fas[id]=el.textContent.trim().split(/\s+/).map(Number);}
+  const getSrc=sid=>{const id=sid.replace("#","");for(const[k,v]of Object.entries(fas)){if(k===id+"-array"||k===id)return v;}const s=doc.querySelector(`[id="${id}"]`);if(!s)return null;const f=s.querySelector("float_array");return f?f.textContent.trim().split(/\s+/).map(Number):null;};
+  const upEl=doc.getElementsByTagName("up_axis")[0];const isYup=upEl&&upEl.textContent.trim()==="Y_UP";
 
   // Build geomId -> matrix map from visual_scene nodes
   const nodeMatrix={};
-  for(const node of doc.querySelectorAll("visual_scene node")){
-    const matEl=node.querySelector("matrix");
-    const geomEl=node.querySelector("instance_geometry");
+  for(const node of doc.getElementsByTagName("node")){
+    const matEl=node.getElementsByTagName("matrix")[0];
+    const geomEl=node.getElementsByTagName("instance_geometry")[0];
     if(matEl&&geomEl){
       const gid=geomEl.getAttribute("url").replace("#","");
-      nodeMatrix[gid]=matEl.textContent.trim().split(/\s+/).map(Number);
+      const vals=matEl.textContent.trim().split(/\s+/).map(Number);
+      if(vals.length===16)nodeMatrix[gid]=vals;
     }
   }
   // Row-major 4x4 matrix * vertex
   const applyMat=(m,x,y,z)=>[m[0]*x+m[1]*y+m[2]*z+m[3],m[4]*x+m[5]*y+m[6]*z+m[7],m[8]*x+m[9]*y+m[10]*z+m[11]];
   const applyMatN=(m,x,y,z)=>{const nx=m[0]*x+m[1]*y+m[2]*z,ny=m[4]*x+m[5]*y+m[6]*z,nz=m[8]*x+m[9]*y+m[10]*z,l=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;return[nx/l,ny/l,nz/l];};
 
-  for(const me of doc.querySelectorAll("geometry mesh")){
-    const gid=me.closest("geometry")?.getAttribute("id")||"";
+  for(const geom of doc.getElementsByTagName("geometry")){
+    const gid=geom.getAttribute("id")||"";
     const M=nodeMatrix[gid]||null;
-    const te=me.querySelector("triangles")||me.querySelector("polylist");if(!te)continue;
+    const mesh=geom.getElementsByTagName("mesh")[0];if(!mesh)continue;
+    // Support both triangles and polylist
+    let te=mesh.getElementsByTagName("triangles")[0]||mesh.getElementsByTagName("polylist")[0];
+    if(!te)continue;
     let pd=null,nd=null;const offs={};let mo=0;
-    for(const inp of te.querySelectorAll("input")){
+    for(const inp of te.getElementsByTagName("input")){
       const sem=inp.getAttribute("semantic"),src=inp.getAttribute("source"),o=+(inp.getAttribute("offset")||"0");
       offs[sem]={source:src,offset:o};mo=Math.max(mo,o);
-      if(sem==="VERTEX"){const ve=doc.querySelector(`[id="${src.replace("#","")}"]`);if(ve){const pi=ve.querySelector('input[semantic="POSITION"]');if(pi)pd=getSrc(pi.getAttribute("source"));}}
-      else if(sem==="NORMAL")nd=getSrc(src);
+      if(sem==="VERTEX"){
+        const vid=src.replace("#","");
+        const ve=doc.querySelector(`[id="${vid}"]`);
+        if(ve){for(const vinp of ve.getElementsByTagName("input")){if(vinp.getAttribute("semantic")==="POSITION")pd=getSrc(vinp.getAttribute("source"));}}
+      }else if(sem==="NORMAL")nd=getSrc(src);
     }
-    if(!pd)continue;const pe=te.querySelector("p");if(!pe)continue;
+    if(!pd)continue;
+    const pe=te.getElementsByTagName("p")[0];if(!pe)continue;
     const ids=pe.textContent.trim().split(/\s+/).map(Number),st=mo+1,v=[],n=[];
     for(let i=0;i<ids.length;i+=st){
       const vi=ids[i+(offs.VERTEX?.offset||0)];
