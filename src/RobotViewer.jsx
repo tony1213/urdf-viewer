@@ -555,17 +555,23 @@ export default function RobotViewer(){
     // XYZ component lines and labels — only on final (non-preview)
     if(!preview){
       const dx=endPt.x-startPt.x,dy=endPt.y-startPt.y,dz=endPt.z-startPt.z;
+      const makeAxisTube=(from,to,color)=>{
+        const len=from.distanceTo(to);if(len<0.001)return null;
+        const dir=new THREE.Vector3().subVectors(to,from).normalize();
+        const geo=new THREE.CylinderGeometry(0.002,0.002,len,6);
+        geo.rotateX(Math.PI/2);
+        const mat=new THREE.MeshBasicMaterial({color,depthTest:false,depthWrite:false,transparent:true,opacity:0.85});
+        const mesh=new THREE.Mesh(geo,mat);
+        mesh.position.copy(from).lerp(to,0.5);
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),dir);
+        mesh.renderOrder=999;
+        return mesh;
+      };
       const xEnd=new THREE.Vector3(endPt.x,startPt.y,startPt.z);
-      const xGeo=new THREE.BufferGeometry().setFromPoints([startPt,xEnd]);
-      const xLine=new THREE.Line(xGeo,new THREE.LineBasicMaterial({color:0xff4444,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
-      xLine.renderOrder=999;scene.add(xLine);m.labels.push(xLine);
       const yEnd=new THREE.Vector3(endPt.x,endPt.y,startPt.z);
-      const yGeo=new THREE.BufferGeometry().setFromPoints([xEnd,yEnd]);
-      const yLine=new THREE.Line(yGeo,new THREE.LineBasicMaterial({color:0x44ff44,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
-      yLine.renderOrder=999;scene.add(yLine);m.labels.push(yLine);
-      const zGeo=new THREE.BufferGeometry().setFromPoints([yEnd,endPt]);
-      const zLine=new THREE.Line(zGeo,new THREE.LineBasicMaterial({color:0x4488ff,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
-      zLine.renderOrder=999;scene.add(zLine);m.labels.push(zLine);
+      const xTube=makeAxisTube(startPt,xEnd,0xff4444);if(xTube){scene.add(xTube);m.labels.push(xTube);}
+      const yTube=makeAxisTube(xEnd,yEnd,0x44ff44);if(yTube){scene.add(yTube);m.labels.push(yTube);}
+      const zTube=makeAxisTube(yEnd,endPt,0x4488ff);if(zTube){scene.add(zTube);m.labels.push(zTube);}
       if(Math.abs(dx)>0.002){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y,startPt.z);const xl=createMeasureLabel(`${(dx*1000).toFixed(1)}`,xMid,"#ff4444",0.05,true);scene.add(xl);m.labels.push(xl);}
       if(Math.abs(dy)>0.002){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`${(dy*1000).toFixed(1)}`,yMid,"#44ff44",0.05,true);scene.add(yl);m.labels.push(yl);}
       if(Math.abs(dz)>0.002){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`${(dz*1000).toFixed(1)}`,zMid,"#4488ff",0.05,true);scene.add(zl);m.labels.push(zl);}
