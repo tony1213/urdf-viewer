@@ -181,7 +181,13 @@ async function buildRobotScene(robot,fileMap){
         const initQuat=new THREE.Quaternion().setFromEuler(initEuler);
         jg.quaternion.copy(initQuat);
         jg.userData={jointType:joint.type,axis:new THREE.Vector3(...joint.axis),lower:joint.lower,upper:joint.upper,value:0,initQuat:initQuat.clone()};
-        const ah=createRGBAxesHelper(0.1);ah.visible=false;jg.add(ah);axisHelpers.push(ah);
+        // Compute link bounding box to auto-scale axis helper
+        const bbox=new THREE.Box3().setFromObject(lg);
+        const bsize=new THREE.Vector3();bbox.getSize(bsize);
+        const linkSize=Math.max(bsize.x,bsize.y,bsize.z)||0.1;
+        // Scale proportional to link size, clamped to [0.03, 0.3]
+        const autoScale=Math.max(0.03,Math.min(0.3,linkSize*0.4));
+        const ah=createRGBAxesHelper(autoScale);ah.visible=false;jg.add(ah);axisHelpers.push(ah);
         lg.add(jg);jointObjects[joint.name]=jg;
         await build(joint.child,jg);
       }
