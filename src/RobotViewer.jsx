@@ -527,7 +527,7 @@ export default function RobotViewer(){
     sprite.position.copy(pos);
     return sprite;
   };
-  const updateMeasureLine=useCallback((startPt,endPt)=>{
+  const updateMeasureLine=useCallback((startPt,endPt,preview=false)=>{
     const scene=sceneRef.current;if(!scene)return;
     const m=measureRef.current;
     // Remove old line and labels
@@ -539,32 +539,30 @@ export default function RobotViewer(){
     const line=new THREE.Line(lineGeo,lineMat);
     line.computeLineDistances();line.renderOrder=999;
     scene.add(line);m.line=line;
-    // XYZ component lines
-    const dx=endPt.x-startPt.x,dy=endPt.y-startPt.y,dz=endPt.z-startPt.z;
     const dist=startPt.distanceTo(endPt);
-    // X component (red)
-    const xEnd=new THREE.Vector3(endPt.x,startPt.y,startPt.z);
-    const xGeo=new THREE.BufferGeometry().setFromPoints([startPt,xEnd]);
-    const xLine=new THREE.Line(xGeo,new THREE.LineBasicMaterial({color:0xff4444,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
-    xLine.renderOrder=999;scene.add(xLine);m.labels.push(xLine);
-    // Y component (green)
-    const yEnd=new THREE.Vector3(endPt.x,endPt.y,startPt.z);
-    const yGeo=new THREE.BufferGeometry().setFromPoints([xEnd,yEnd]);
-    const yLine=new THREE.Line(yGeo,new THREE.LineBasicMaterial({color:0x44ff44,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
-    yLine.renderOrder=999;scene.add(yLine);m.labels.push(yLine);
-    // Z component (blue)
-    const zGeo=new THREE.BufferGeometry().setFromPoints([yEnd,endPt]);
-    const zLine=new THREE.Line(zGeo,new THREE.LineBasicMaterial({color:0x4488ff,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
-    zLine.renderOrder=999;scene.add(zLine);m.labels.push(zLine);
     // Distance label at midpoint
     const mid=new THREE.Vector3().addVectors(startPt,endPt).multiplyScalar(0.5);
     mid.y+=0.04;
     const distLabel=createMeasureLabel(`${dist.toFixed(3)}m`,mid,"#ff6600",0.14);
     scene.add(distLabel);m.labels.push(distLabel);
-    // XYZ component labels
-    if(Math.abs(dx)>0.005){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y-0.025,startPt.z);const xl=createMeasureLabel(`X:${dx.toFixed(3)}`,xMid,"#ff4444",0.1);scene.add(xl);m.labels.push(xl);}
-    if(Math.abs(dy)>0.005){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`Y:${dy.toFixed(3)}`,yMid,"#44ff44",0.1);scene.add(yl);m.labels.push(yl);}
-    if(Math.abs(dz)>0.005){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`Z:${dz.toFixed(3)}`,zMid,"#4488ff",0.1);scene.add(zl);m.labels.push(zl);}
+    // XYZ component lines and labels — only on final (non-preview)
+    if(!preview){
+      const dx=endPt.x-startPt.x,dy=endPt.y-startPt.y,dz=endPt.z-startPt.z;
+      const xEnd=new THREE.Vector3(endPt.x,startPt.y,startPt.z);
+      const xGeo=new THREE.BufferGeometry().setFromPoints([startPt,xEnd]);
+      const xLine=new THREE.Line(xGeo,new THREE.LineBasicMaterial({color:0xff4444,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
+      xLine.renderOrder=999;scene.add(xLine);m.labels.push(xLine);
+      const yEnd=new THREE.Vector3(endPt.x,endPt.y,startPt.z);
+      const yGeo=new THREE.BufferGeometry().setFromPoints([xEnd,yEnd]);
+      const yLine=new THREE.Line(yGeo,new THREE.LineBasicMaterial({color:0x44ff44,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
+      yLine.renderOrder=999;scene.add(yLine);m.labels.push(yLine);
+      const zGeo=new THREE.BufferGeometry().setFromPoints([yEnd,endPt]);
+      const zLine=new THREE.Line(zGeo,new THREE.LineBasicMaterial({color:0x4488ff,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
+      zLine.renderOrder=999;scene.add(zLine);m.labels.push(zLine);
+      if(Math.abs(dx)>0.005){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y-0.025,startPt.z);const xl=createMeasureLabel(`X:${dx.toFixed(3)}`,xMid,"#ff4444",0.1);scene.add(xl);m.labels.push(xl);}
+      if(Math.abs(dy)>0.005){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`Y:${dy.toFixed(3)}`,yMid,"#44ff44",0.1);scene.add(yl);m.labels.push(yl);}
+      if(Math.abs(dz)>0.005){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`Z:${dz.toFixed(3)}`,zMid,"#4488ff",0.1);scene.add(zl);m.labels.push(zl);}
+    }
   },[]);
   // Measure mode click handler
   const handleMeasureClick=useCallback((e)=>{
@@ -607,7 +605,7 @@ export default function RobotViewer(){
     const hits=raycasterRef.current.intersectObject(robotGroupRef.current,true);
     const hit=hits.find(h=>h.object.userData.linkName);
     if(hit){
-      updateMeasureLine(measureRef.current.start,hit.point.clone());
+      updateMeasureLine(measureRef.current.start,hit.point.clone(),true);
     }
   },[measureMode,updateMeasureLine]);
   // Clear measure when mode is turned off
