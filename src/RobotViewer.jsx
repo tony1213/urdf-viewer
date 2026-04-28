@@ -229,8 +229,14 @@ function buildFolderTree(files){
 }
 
 // ─── Theme ───────────────────────────────────────────────────
-const C_DARK={bg:"#0a0e17",panel:"#111827",border:"#1e293b",accent:"#22d3ee",accentDim:"#0e7490",text:"#e2e8f0",dim:"#64748b",danger:"#f43f5e"};
-const C_LIGHT={bg:"#f0f4f8",panel:"#ffffff",border:"#d1d9e0",accent:"#0891b2",accentDim:"#0e7490",text:"#1e293b",dim:"#64748b",danger:"#f43f5e"};
+const C_DARK_BASE={bg:"#0a0e17",panel:"#111827",border:"#1e293b",text:"#e2e8f0",dim:"#64748b",danger:"#f43f5e"};
+const C_LIGHT_BASE={bg:"#f0f4f8",panel:"#ffffff",border:"#d1d9e0",text:"#1e293b",dim:"#64748b",danger:"#f43f5e"};
+// Generate accentDim by darkening accent
+function hexToDim(hex){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return`#${Math.round(r*0.45).toString(16).padStart(2,'0')}${Math.round(g*0.45).toString(16).padStart(2,'0')}${Math.round(b*0.45).toString(16).padStart(2,'0')}`;}
+function makeTheme(base,accent){return{...base,accent,accentDim:hexToDim(accent)};}
+// Defaults for backward compat
+const C_DARK=makeTheme(C_DARK_BASE,"#22d3ee");
+const C_LIGHT=makeTheme(C_LIGHT_BASE,"#0891b2");
 
 // ─── FolderNode component ────────────────────────────────────
 function FolderNode({node,name,depth=0,C=C_DARK}){
@@ -304,6 +310,7 @@ export default function RobotViewer(){
   const[sidebarTab,setSidebarTab]=useState("joints"); // "joints"|"files"|"tree"
   const[sidebarWidth,setSidebarWidth]=useState(320);
   const[darkMode,setDarkMode]=useState(false);
+  const[accentColor,setAccentColor]=useState("#22d3ee"); // user-customizable accent
   const[lang,setLang]=useState("zh"); // "zh"|"en"
   const[gridSize,setGridSize]=useState(1.0); // meters per grid cell, total size = gridSize * 10
   const[useRadians,setUseRadians]=useState(false); // false=degrees, true=radians
@@ -836,7 +843,7 @@ export default function RobotViewer(){
   const urdfTree=robot?buildURDFTree(robot):null;
   const folderTree=files.length?buildFolderTree(files):null;
 
-  const C=darkMode?C_DARK:C_LIGHT;
+  const C=darkMode?makeTheme(C_DARK_BASE,accentColor):makeTheme(C_LIGHT_BASE,accentColor);
 
   const T=lang==="zh"?{
     jointCtrl:"关节控制",jointOpacity:"关节透明度",folder:"文件",noJoints:"没有可控关节",
@@ -850,7 +857,7 @@ export default function RobotViewer(){
     coordSys:"坐标系 (Up Axis)",heightOffset:"模型高度偏移",autoGround:"⬇ 自动落地",viewPresets:"视角预设",
     front:"前",back:"后",left:"左",right:"右",top:"上",persp:"透视",
     urdfTree:"🔗 URDF 树",folderTree:"📁 文件夹",noFolderData:"无文件夹数据",
-    loadedFiles:"已加载文件",gridSizeLabel:"网格大小",urdfTab:"URDF",degUnit:"角度",radUnit:"弧度",
+    loadedFiles:"已加载文件",gridSizeLabel:"网格大小",urdfTab:"URDF",degUnit:"角度",radUnit:"弧度",accentLabel:"主题色",
   }:{
     jointCtrl:"Joints",jointOpacity:"Opacity",folder:"Files",noJoints:"No controllable joints",
     showAll:"Show All",halfTrans:"Semi-Trans",hideAll:"Hide All",resetJoints:"↺ Reset Joints",unload:"✕ Unload",
@@ -863,7 +870,7 @@ export default function RobotViewer(){
     coordSys:"Coord System (Up Axis)",heightOffset:"Model Height Offset",autoGround:"⬇ Auto Ground",viewPresets:"View Presets",
     front:"Front",back:"Back",left:"Left",right:"Right",top:"Top",persp:"Persp",
     urdfTree:"🔗 URDF Tree",folderTree:"📁 Folder",noFolderData:"No folder data",
-    loadedFiles:"Loaded Files",gridSizeLabel:"Grid Size",urdfTab:"URDF",degUnit:"Degrees",radUnit:"Radians",
+    loadedFiles:"Loaded Files",gridSizeLabel:"Grid Size",urdfTab:"URDF",degUnit:"Degrees",radUnit:"Radians",accentLabel:"Accent",
   };
 
   const TBtn=({active,onClick,children,title,color})=>(
@@ -979,6 +986,15 @@ export default function RobotViewer(){
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <input type="range" min={0.1} max={5} step={0.1} value={gridSize} onChange={e=>setGridSize(+e.target.value)} style={{flex:1,appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
                 <span style={{fontSize:11,color:C.accent,fontVariantNumeric:"tabular-nums",minWidth:40,textAlign:"right"}}>{gridSize.toFixed(1)}m</span>
+              </div>
+              {/* Accent color picker */}
+              <div style={{fontSize:11,fontWeight:700,color:C.text,marginTop:10,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>{T.accentLabel}</div>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                {["#22d3ee","#3b82f6","#8b5cf6","#f43f5e","#f97316","#22c55e","#eab308","#ec4899"].map(c=>(
+                  <div key={c} onClick={()=>setAccentColor(c)} style={{width:20,height:20,borderRadius:"50%",background:c,cursor:"pointer",border:accentColor===c?`2px solid ${C.text}`:`2px solid transparent`,boxShadow:accentColor===c?"0 0 6px "+c:"none"}}/>
+                ))}
+                <input type="color" value={accentColor} onChange={e=>setAccentColor(e.target.value)}
+                  style={{width:20,height:20,padding:0,border:`1px solid ${C.border}`,borderRadius:"50%",cursor:"pointer",background:"conic-gradient(red,yellow,lime,aqua,blue,magenta,red)",appearance:"none",WebkitAppearance:"none",overflow:"hidden"}}/>
               </div>
             </div>
           )}
