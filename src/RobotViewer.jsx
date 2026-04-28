@@ -516,11 +516,18 @@ export default function RobotViewer(){
     mesh.position.copy(pos);
     return mesh;
   };
-  const createMeasureLabel=(text,pos,color="#ff6600",size=0.12)=>{
-    const canvas=document.createElement("canvas");canvas.width=256;canvas.height=64;
+  const createMeasureLabel=(text,pos,color="#ff6600",size=0.06,noBg=false)=>{
+    const canvas=document.createElement("canvas");canvas.width=192;canvas.height=48;
     const ctx=canvas.getContext("2d");
-    ctx.fillStyle="rgba(0,0,0,0.75)";ctx.beginPath();ctx.roundRect(2,6,canvas.width-4,canvas.height-12,10);ctx.fill();
-    ctx.fillStyle=color;ctx.font="bold 28px monospace";ctx.textAlign="center";ctx.textBaseline="middle";
+    if(!noBg){
+      ctx.fillStyle="rgba(0,0,0,0.65)";ctx.beginPath();ctx.roundRect(2,6,canvas.width-4,canvas.height-12,8);ctx.fill();
+    }
+    ctx.fillStyle=color;ctx.font="bold 26px monospace";ctx.textAlign="center";ctx.textBaseline="middle";
+    if(!noBg){
+      // Add text shadow for readability without bg
+    } else {
+      ctx.strokeStyle="rgba(0,0,0,0.7)";ctx.lineWidth=3;ctx.strokeText(text,canvas.width/2,canvas.height/2);
+    }
     ctx.fillText(text,canvas.width/2,canvas.height/2);
     const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),transparent:true,depthTest:false,depthWrite:false,sizeAttenuation:true}));
     sprite.scale.set(size,size*0.25,1);sprite.renderOrder=1001;
@@ -543,7 +550,7 @@ export default function RobotViewer(){
     // Distance label at midpoint
     const mid=new THREE.Vector3().addVectors(startPt,endPt).multiplyScalar(0.5);
     mid.y+=0.04;
-    const distLabel=createMeasureLabel(`${(dist*1000).toFixed(1)}mm`,mid,"#ff6600",0.12);
+    const distLabel=createMeasureLabel(`${(dist*1000).toFixed(1)}mm`,mid,"#ff6600",0.06);
     scene.add(distLabel);m.labels.push(distLabel);
     // XYZ component lines and labels — only on final (non-preview)
     if(!preview){
@@ -559,10 +566,9 @@ export default function RobotViewer(){
       const zGeo=new THREE.BufferGeometry().setFromPoints([yEnd,endPt]);
       const zLine=new THREE.Line(zGeo,new THREE.LineBasicMaterial({color:0x4488ff,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
       zLine.renderOrder=999;scene.add(zLine);m.labels.push(zLine);
-      // Small mm labels positioned on each axis line
-      if(Math.abs(dx)>0.002){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y,startPt.z);const xl=createMeasureLabel(`${(dx*1000).toFixed(1)}`,xMid,"#ff4444",0.06);scene.add(xl);m.labels.push(xl);}
-      if(Math.abs(dy)>0.002){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`${(dy*1000).toFixed(1)}`,yMid,"#44ff44",0.06);scene.add(yl);m.labels.push(yl);}
-      if(Math.abs(dz)>0.002){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`${(dz*1000).toFixed(1)}`,zMid,"#4488ff",0.06);scene.add(zl);m.labels.push(zl);}
+      if(Math.abs(dx)>0.002){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y,startPt.z);const xl=createMeasureLabel(`${(dx*1000).toFixed(1)}`,xMid,"#ff4444",0.05,true);scene.add(xl);m.labels.push(xl);}
+      if(Math.abs(dy)>0.002){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`${(dy*1000).toFixed(1)}`,yMid,"#44ff44",0.05,true);scene.add(yl);m.labels.push(yl);}
+      if(Math.abs(dz)>0.002){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`${(dz*1000).toFixed(1)}`,zMid,"#4488ff",0.05,true);scene.add(zl);m.labels.push(zl);}
     }
   },[]);
   // Measure mode click handler
