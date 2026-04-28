@@ -543,7 +543,7 @@ export default function RobotViewer(){
     // Distance label at midpoint
     const mid=new THREE.Vector3().addVectors(startPt,endPt).multiplyScalar(0.5);
     mid.y+=0.04;
-    const distLabel=createMeasureLabel(`${dist.toFixed(3)}m`,mid,"#ff6600",0.14);
+    const distLabel=createMeasureLabel(`${(dist*1000).toFixed(1)}mm`,mid,"#ff6600",0.12);
     scene.add(distLabel);m.labels.push(distLabel);
     // XYZ component lines and labels — only on final (non-preview)
     if(!preview){
@@ -559,9 +559,10 @@ export default function RobotViewer(){
       const zGeo=new THREE.BufferGeometry().setFromPoints([yEnd,endPt]);
       const zLine=new THREE.Line(zGeo,new THREE.LineBasicMaterial({color:0x4488ff,depthTest:false,depthWrite:false,transparent:true,opacity:0.7}));
       zLine.renderOrder=999;scene.add(zLine);m.labels.push(zLine);
-      if(Math.abs(dx)>0.005){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y-0.025,startPt.z);const xl=createMeasureLabel(`X:${dx.toFixed(3)}`,xMid,"#ff4444",0.1);scene.add(xl);m.labels.push(xl);}
-      if(Math.abs(dy)>0.005){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`Y:${dy.toFixed(3)}`,yMid,"#44ff44",0.1);scene.add(yl);m.labels.push(yl);}
-      if(Math.abs(dz)>0.005){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`Z:${dz.toFixed(3)}`,zMid,"#4488ff",0.1);scene.add(zl);m.labels.push(zl);}
+      // Small mm labels positioned on each axis line
+      if(Math.abs(dx)>0.002){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y,startPt.z);const xl=createMeasureLabel(`${(dx*1000).toFixed(1)}`,xMid,"#ff4444",0.06);scene.add(xl);m.labels.push(xl);}
+      if(Math.abs(dy)>0.002){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`${(dy*1000).toFixed(1)}`,yMid,"#44ff44",0.06);scene.add(yl);m.labels.push(yl);}
+      if(Math.abs(dz)>0.002){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`${(dz*1000).toFixed(1)}`,zMid,"#4488ff",0.06);scene.add(zl);m.labels.push(zl);}
     }
   },[]);
   // Measure mode click handler
@@ -578,19 +579,19 @@ export default function RobotViewer(){
     const scene=sceneRef.current;if(!scene)return;
     const m=measureRef.current;
     const pt=hit.point.clone();
-    if(!m.start){
-      // First click: set start point
+    if(!m.start||m.end){
+      // First click (or new measurement after previous completed): set start point
       clearMeasure();
-      m.start=pt;
+      m.start=pt;m.end=null;
       const marker=createMeasureMarker(pt);
       scene.add(marker);m.markers.push(marker);
     }else{
-      // Second click: set end point and draw
+      // Second click: set end point and draw final result
       m.end=pt;
       const marker=createMeasureMarker(pt);
       scene.add(marker);m.markers.push(marker);
-      updateMeasureLine(m.start,m.end);
-      m.start=null; // reset for next measurement
+      updateMeasureLine(m.start,m.end,false);
+      // Don't reset m.start/m.end — keep result visible, allow camera rotation
     }
   },[measureMode,clearMeasure,updateMeasureLine]);
   // Measure mode: preview line while mouse moves after first click
@@ -836,10 +837,9 @@ export default function RobotViewer(){
         midDown.current=true; lastM.current={x:e.clientX,y:e.clientY}; return;
       }
       if(e.button===0&&e.target.tagName!=="INPUT"){
-        // Measure mode: handle click for measurement points
-        if(measureModeRef.current){
-          // Don't start camera rotation, let handleMeasureClick handle it
-          return;
+        // Measure mode: only block camera when actively picking a point
+        if(measureModeRef.current&&(measureRef.current.start&&!measureRef.current.end)){
+          return; // waiting for second point, don't start camera rotation
         }
         // If hovering a link with controllable parent joint, start link drag
         const ln=hoveredLinkRef.current;
