@@ -437,6 +437,15 @@ export default function RobotViewer(){
         const cg=new THREE.BufferGeometry();cg.setAttribute("position",new THREE.BufferAttribute(new Float32Array([0,0,0,cx*radius*1.4,cy*radius*1.4,cz*radius*1.4]),3));
         const cl=new THREE.Line(cg,new THREE.LineBasicMaterial({color:0xff6600,depthTest:false,depthWrite:false,transparent:true}));
         cl.renderOrder=999;arcGroup.add(cl);
+        // Zero label sprite at end of zero ref line
+        const zCanvas=document.createElement("canvas");zCanvas.width=48;zCanvas.height=48;
+        const zCtx=zCanvas.getContext("2d");
+        zCtx.fillStyle="#ffffff";zCtx.font="bold 32px monospace";zCtx.textAlign="center";zCtx.textBaseline="middle";
+        zCtx.fillText("0",24,24);
+        const zSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(zCanvas),transparent:true,depthTest:false,depthWrite:false,sizeAttenuation:true}));
+        zSprite.scale.set(0.05,0.05,1);zSprite.renderOrder=1000;
+        zSprite.position.set(u.x*radius*1.65,u.y*radius*1.65,u.z*radius*1.65);
+        arcGroup.add(zSprite);
         // Arrowhead at arc endpoint (cone pointing in rotation direction)
         const endDir=new THREE.Vector3(cx,cy,cz).normalize();
         // Tangent at arc end: perpendicular to endDir in the rotation plane, in direction of rotation
@@ -462,8 +471,10 @@ export default function RobotViewer(){
     const ctx=canvas.getContext("2d");
     ctx.fillStyle="rgba(0,0,0,0.7)";ctx.beginPath();ctx.roundRect(0,4,canvas.width,canvas.height-8,10);ctx.fill();
     ctx.fillStyle="#ff6600";ctx.font="bold 32px monospace";ctx.textAlign="center";ctx.textBaseline="middle";
-    const deg=(value*(180/Math.PI)).toFixed(1);
-    ctx.fillText(jointType==="prismatic"?`${value.toFixed(3)}m`:`${deg}°`,canvas.width/2,canvas.height/2);
+    const isPris=jointType==="prismatic";
+    const useRad=useRadiansRef.current;
+    const displayText=isPris?`${value.toFixed(3)}m`:useRad?`${value.toFixed(3)}rad`:`${(value*(180/Math.PI)).toFixed(1)}°`;
+    ctx.fillText(displayText,canvas.width/2,canvas.height/2);
     const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),transparent:true,depthTest:false,depthWrite:false,sizeAttenuation:true}));
     sprite.scale.set(0.15,0.055,1);sprite.renderOrder=1000;
     sprite.position.copy(pos);sprite.position.y+=0.1;
