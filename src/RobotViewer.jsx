@@ -174,7 +174,8 @@ function buildFolderTree(files){
 }
 
 // ─── Theme ───────────────────────────────────────────────────
-const C={bg:"#0a0e17",panel:"#111827",border:"#1e293b",accent:"#22d3ee",accentDim:"#0e7490",text:"#e2e8f0",dim:"#64748b",danger:"#f43f5e"};
+const C_DARK={bg:"#0a0e17",panel:"#111827",border:"#1e293b",accent:"#22d3ee",accentDim:"#0e7490",text:"#e2e8f0",dim:"#64748b",danger:"#f43f5e"};
+const C_LIGHT={bg:"#f0f4f8",panel:"#ffffff",border:"#d1d9e0",accent:"#0891b2",accentDim:"#0e7490",text:"#1e293b",dim:"#64748b",danger:"#f43f5e"};
 
 // ─── FolderNode component ────────────────────────────────────
 function FolderNode({node,name,depth=0}){
@@ -239,6 +240,7 @@ export default function RobotViewer(){
   const[linkOpacities,setLinkOpacities]=useState({});
   const[sidebarTab,setSidebarTab]=useState("joints"); // "joints"|"files"|"tree"
   const[sidebarWidth,setSidebarWidth]=useState(320);
+  const[darkMode,setDarkMode]=useState(true);
   const resizingRef=useRef(false);
   const handleRef=useRef(null);
 
@@ -287,7 +289,18 @@ export default function RobotViewer(){
     return()=>{window.removeEventListener("resize",resize);cancelAnimationFrame(animRef.current);ren.dispose();};
   },[]);
 
-  useEffect(()=>{const s=sceneRef.current;if(!s)return;s.children.filter(c=>c.userData.isHelper).forEach(c=>s.remove(c));if(grid){const g=new THREE.GridHelper(4,40,0x1a2332,0x131b2a);g.userData.isHelper=true;s.add(g);}if(axes){const a=new THREE.AxesHelper(0.5);a.userData.isHelper=true;s.add(a);}},[grid,axes]);
+  useEffect(()=>{const s=sceneRef.current;if(!s)return;s.children.filter(c=>c.userData.isHelper).forEach(c=>s.remove(c));if(grid){const gc=darkMode?[0x1a2332,0x131b2a]:[0xcccccc,0xdddddd];const g=new THREE.GridHelper(4,40,gc[0],gc[1]);g.userData.isHelper=true;s.add(g);}if(axes){const a=new THREE.AxesHelper(0.5);a.userData.isHelper=true;s.add(a);}},[grid,axes,darkMode]);
+
+  // Update ground color on dark/light mode
+  useEffect(()=>{
+    const s=sceneRef.current;if(!s)return;
+    s.traverse(c=>{
+      if(c.isMesh&&c.geometry?.type==="PlaneGeometry"){
+        c.material.color.set(darkMode?0x0d1117:0xf0f0f0);
+        c.material.needsUpdate=true;
+      }
+    });
+  },[darkMode]);
 
   // Re-fit canvas when sidebar width changes
   useEffect(()=>{
@@ -359,20 +372,28 @@ export default function RobotViewer(){
     setJointVals(p=>({...p,[name]:val}));},[]);
   const resetJoints=useCallback(()=>{for(const n of Object.keys(jointObjRef.current))updateJoint(n,0);},[updateJoint]);
 
-  const onMD=useCallback(e=>{
-    if(e.target.tagName==="INPUT"||resizingRef.current)return;
-    if(e.button===1){e.preventDefault();midDown.current=true;lastM.current={x:e.clientX,y:e.clientY};return;}
-    if(e.button===0){mouseDown.current=true;lastM.current={x:e.clientX,y:e.clientY};}
+  // Native canvas mouse events — prevents browser autoscroll on middle button
+  useEffect(()=>{
+    const cv=canvasRef.current; if(!cv)return;
+    const onDown=e=>{
+      if(resizingRef.current)return;
+      if(e.button===1){
+        e.preventDefault(); // stop browser autoscroll
+        midDown.current=true; lastM.current={x:e.clientX,y:e.clientY}; return;
+      }
+      if(e.button===0&&e.target.tagName!=="INPUT"){mouseDown.current=true;lastM.current={x:e.clientX,y:e.clientY};}
+    };
+    cv.addEventListener("mousedown",onDown);
+    return()=>cv.removeEventListener("mousedown",onDown);
   },[]);
+
   const onMM=useCallback(e=>{
     if(resizingRef.current)return;
     const dx=e.clientX-lastM.current.x,dy=e.clientY-lastM.current.y;
     lastM.current={x:e.clientX,y:e.clientY};
     if(midDown.current){
-      // Pan: move lookTarget perpendicular to camera direction
       const cam=cameraRef.current;if(!cam)return;
       const right=new THREE.Vector3();const up=new THREE.Vector3();
-      cam.getWorldDirection(new THREE.Vector3());
       right.setFromMatrixColumn(cam.matrixWorld,0);
       up.setFromMatrixColumn(cam.matrixWorld,1);
       const panSpeed=0.002*camAngle.current.radius;
@@ -407,6 +428,8 @@ export default function RobotViewer(){
   const urdfTree=robot?buildURDFTree(robot):null;
   const folderTree=files.length?buildFolderTree(files):null;
 
+  const C=darkMode?C_DARK:C_LIGHT;
+
   const TBtn=({active,onClick,children,title,color})=>(
     <button className="tb" title={title} onClick={onClick} style={{width:36,height:36,borderRadius:8,background:active?(color||C.accent):C.panel,border:`1px solid ${active?(color||C.accent):C.border}`,color:active?C.bg:C.dim,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:14,transition:"all 0.15s",padding:0}}>{children}</button>
   );
@@ -432,13 +455,16 @@ export default function RobotViewer(){
 
       {/* Canvas */}
       <div style={{flex:1,position:"relative",minWidth:0}}>
-        <canvas ref={canvasRef} style={{width:"100%",height:"100%",cursor:"grab"}} onMouseDown={onMD} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
+        <canvas ref={canvasRef} style={{width:"100%",height:"100%",cursor:"grab",background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
           <TBtn active={grid} onClick={()=>setGrid(!grid)} title="网格">⊞</TBtn>
           <TBtn active={axes} onClick={()=>setAxes(!axes)} title="坐标轴">✛</TBtn>
           <TBtn active={wire} onClick={()=>setWire(!wire)} title="线框">△</TBtn>
+          <TBtn active={!darkMode} onClick={()=>setDarkMode(!darkMode)} title={darkMode?"切换白色背景":"切换黑色背景"} color={darkMode?C.accent:"#334155"}>
+            {darkMode?"☀":"🌙"}
+          </TBtn>
           <div style={{height:1,background:C.border,margin:"2px 0"}}/>
           <TBtn active={showJointAxes} onClick={()=>setShowJointAxes(!showJointAxes)} title="关节坐标系 (RGB)" color="#ffaa00">
             <svg width="18" height="18" viewBox="0 0 18 18">
