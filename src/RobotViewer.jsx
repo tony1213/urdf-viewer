@@ -555,7 +555,12 @@ export default function RobotViewer(){
                   <button key={item.l} className="cb" onClick={()=>{camAngle.current.theta=item.th;camAngle.current.phi=item.ph;updateCam();}} style={{padding:"5px 4px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'JetBrains Mono',monospace"}}>{item.l}</button>
                 ))}
               </div>
-              {/* Grid size and language now in toolbar and header */}
+              {/* Grid size */}
+              <div style={{fontSize:11,fontWeight:700,color:C.text,marginTop:10,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>{T.gridSizeLabel}</div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input type="range" min={0.1} max={5} step={0.1} value={gridSize} onChange={e=>setGridSize(+e.target.value)} style={{flex:1,appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
+                <span style={{fontSize:11,color:C.accent,fontVariantNumeric:"tabular-nums",minWidth:40,textAlign:"right"}}>{gridSize.toFixed(1)}m</span>
+              </div>
             </div>
           )}
         </div>
