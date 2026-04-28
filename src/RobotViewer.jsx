@@ -428,15 +428,32 @@ export default function RobotViewer(){
         const curve=new THREE.BufferGeometry();curve.setAttribute("position",new THREE.BufferAttribute(new Float32Array(pts),3));
         const arcLine=new THREE.Line(curve,new THREE.LineBasicMaterial({color:0xff6600,linewidth:2,depthTest:false,depthWrite:false,transparent:true}));
         arcLine.renderOrder=999;arcGroup.add(arcLine);
-        // Zero ref line
+        // Zero ref line (white, clearly visible)
         const zg=new THREE.BufferGeometry();zg.setAttribute("position",new THREE.BufferAttribute(new Float32Array([0,0,0,u.x*radius*1.4,u.y*radius*1.4,u.z*radius*1.4]),3));
-        const zl=new THREE.Line(zg,new THREE.LineBasicMaterial({color:0x888888,depthTest:false,depthWrite:false,transparent:true,opacity:0.6}));
+        const zl=new THREE.Line(zg,new THREE.LineBasicMaterial({color:0xffffff,depthTest:false,depthWrite:false,transparent:true,opacity:0.9}));
         zl.renderOrder=999;arcGroup.add(zl);
         // Current angle line
         const ca=value;const cx=u.x*Math.cos(ca)+v.x*Math.sin(ca),cy=u.y*Math.cos(ca)+v.y*Math.sin(ca),cz=u.z*Math.cos(ca)+v.z*Math.sin(ca);
         const cg=new THREE.BufferGeometry();cg.setAttribute("position",new THREE.BufferAttribute(new Float32Array([0,0,0,cx*radius*1.4,cy*radius*1.4,cz*radius*1.4]),3));
         const cl=new THREE.Line(cg,new THREE.LineBasicMaterial({color:0xff6600,depthTest:false,depthWrite:false,transparent:true}));
         cl.renderOrder=999;arcGroup.add(cl);
+        // Arrowhead at arc endpoint (cone pointing in rotation direction)
+        const endDir=new THREE.Vector3(cx,cy,cz).normalize();
+        // Tangent at arc end: perpendicular to endDir in the rotation plane, in direction of rotation
+        const tangent=new THREE.Vector3().crossVectors(worldAxis,endDir).normalize();
+        if(value<0)tangent.negate();
+        const coneGeo=new THREE.ConeGeometry(0.012,0.03,6);
+        const coneMat=new THREE.MeshBasicMaterial({color:0xff6600,depthTest:false,depthWrite:false,transparent:true});
+        const cone=new THREE.Mesh(coneGeo,coneMat);
+        cone.renderOrder=999;
+        // Position at arc end
+        cone.position.set(cx*radius,cy*radius,cz*radius);
+        // Orient cone along tangent direction
+        const quat=new THREE.Quaternion();
+        const defaultUp=new THREE.Vector3(0,1,0);
+        quat.setFromUnitVectors(defaultUp,tangent);
+        cone.quaternion.copy(quat);
+        arcGroup.add(cone);
       }
     }
     scene.add(arcGroup);ref.arc=arcGroup;
