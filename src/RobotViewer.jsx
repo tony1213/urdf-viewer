@@ -721,6 +721,20 @@ export default function RobotViewer(){
 
   const jEntries=Object.entries(jointVals).filter(([n])=>{const o=jointObjRef.current[n];return o&&o.userData.jointType!=="fixed";});
   const hasInertial=robot?Object.values(robot.links).some(l=>l.inertial):false;
+  // Detect serial arm vs branching robot (humanoid/quadruped)
+  // Serial arm: no link has more than 1 movable (non-fixed) child joint
+  const isSerialArm=(()=>{
+    if(!robot)return false;
+    const movableJoints=Object.values(robot.joints).filter(j=>j.type!=="fixed");
+    if(movableJoints.length===0)return false;
+    // Count how many movable child joints each link has
+    const childCount={};
+    for(const j of movableJoints){
+      childCount[j.parent]=(childCount[j.parent]||0)+1;
+    }
+    // If any link has >1 movable child joint, it's a branching robot
+    return Object.values(childCount).every(c=>c<=1);
+  })();
   const linkNames=robot?Object.keys(robot.links):[];
   const urdfTree=robot?buildURDFTree(robot):null;
   const folderTree=files.length?buildFolderTree(files):null;
@@ -802,7 +816,7 @@ export default function RobotViewer(){
             {darkMode?"☀":"🌙"}
           </TBtn>
           <div style={{height:1,background:C.border,margin:"2px 0"}}/>
-          {robot&&<TBtn active={tcpMode} onClick={()=>setTcpMode(v=>!v)} title={lang==="zh"?(tcpMode?"退出TCP拖动":"TCP拖动(IK)"):(tcpMode?"Exit TCP":"TCP Drag(IK)")} color="#ff6600">
+          {robot&&isSerialArm&&<TBtn active={tcpMode} onClick={()=>setTcpMode(v=>!v)} title={lang==="zh"?(tcpMode?"退出TCP拖动":"TCP拖动(IK)"):(tcpMode?"Exit TCP":"TCP Drag(IK)")} color="#ff6600">
             <svg width="18" height="18" viewBox="0 0 18 18">
               <circle cx="9" cy="5" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.5"/>
               <line x1="9" y1="7.5" x2="9" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
