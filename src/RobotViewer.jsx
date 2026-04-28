@@ -115,6 +115,8 @@ async function buildRobotScene(robot,fileMap){
     }catch(e){console.warn("Mesh err:",vis.filename,e);}return null;};
   const mkVis=async vis=>{if(vis.type==="mesh"){const ld=await loadMesh(vis);if(ld){if(vis.origin){ld.position.set(...vis.origin.xyz);const[r,p,y]=vis.origin.rpy;ld.rotation.set(r,p,y,"ZYX");}return ld;}}let geom;switch(vis.type){case"box":geom=new THREE.BoxGeometry(...vis.size);break;case"cylinder":geom=new THREE.CylinderGeometry(vis.radius,vis.radius,vis.length,24);break;case"sphere":geom=new THREE.SphereGeometry(vis.radius,24,16);break;default:geom=new THREE.BoxGeometry(0.03,0.03,0.03);}const m=new THREE.Mesh(geom,mkMat(vis.color));m.castShadow=m.receiveShadow=true;if(vis.origin){m.position.set(...vis.origin.xyz);const[r,p,y]=vis.origin.rpy;m.rotation.set(r,p,y,"ZYX");}return m;};
 
+  const tagMeshes=(group,linkName)=>{group.traverse(c=>{if(c.isMesh&&!c.userData.isCOM&&!c.userData.isInertia&&!c.renderOrder){c.userData.linkName=linkName;}});};
+
   const rootGroup=new THREE.Group();
   const childSet=new Set(Object.values(robot.joints).map(j=>j.child));
   const rootLink=Object.keys(robot.links).find(l=>!childSet.has(l));
@@ -122,7 +124,7 @@ async function buildRobotScene(robot,fileMap){
 
   const build=async(linkName,parent)=>{
     const link=robot.links[linkName],lg=new THREE.Group();lg.name=linkName;
-    for(const vis of(link.visuals||[])){const m=await mkVis(vis);if(m)lg.add(m);}
+    for(const vis of(link.visuals||[])){const m=await mkVis(vis);if(m){tagMeshes(m,linkName);lg.add(m);}}
     if(link.inertial){const com=createCOM(link.inertial.mass,link.inertial.origin);com.visible=false;lg.add(com);comMarkers.push(com);if(link.inertial.inertia){const ie=createInertia(link.inertial.mass,link.inertial.inertia,link.inertial.origin);ie.visible=false;lg.add(ie);inertiaMarkers.push(ie);}}
     parent.add(lg);linkObjects[linkName]=lg;
     for(const joint of Object.values(robot.joints)){
@@ -213,6 +215,11 @@ export default function RobotViewer(){
   const lookTarget=useRef(new THREE.Vector3(0,0.3,0));
   const comRef=useRef([]),inertiaRef=useRef([]),axisRef=useRef([]);
   const containerRef=useRef(null);
+  const raycasterRef=useRef(new THREE.Raycaster());
+  const hoveredLinkRef=useRef(null); // currently hovered link name
+  const originalMatsRef=useRef(new Map()); // mesh -> original material
+
+  const[hoverInfo,setHoverInfo]=useState(null); // {linkName, x, y}
 
   const[robot,setRobot]=useState(null);
   const[jointVals,setJointVals]=useState({});
@@ -374,13 +381,37 @@ export default function RobotViewer(){
     setJointVals(p=>({...p,[name]:val}));},[]);
   const resetJoints=useCallback(()=>{for(const n of Object.keys(jointObjRef.current))updateJoint(n,0);},[updateJoint]);
 
+  // Highlight / unhighlight link meshes on hover
+  const highlightLink=useCallback((linkName)=>{
+    if(linkName===hoveredLinkRef.current)return;
+    // Unhighlight previous
+    if(hoveredLinkRef.current){
+      const prev=linkObjRef.current[hoveredLinkRef.current];
+      if(prev)prev.traverse(c=>{if(c.isMesh&&originalMatsRef.current.has(c)){c.material=originalMatsRef.current.get(c);originalMatsRef.current.delete(c);}});
+    }
+    hoveredLinkRef.current=linkName;
+    // Highlight new
+    if(linkName){
+      const grp=linkObjRef.current[linkName];
+      if(grp)grp.traverse(c=>{
+        if(c.isMesh&&c.userData.linkName===linkName&&!originalMatsRef.current.has(c)){
+          originalMatsRef.current.set(c,c.material);
+          const hmat=c.material.clone();
+          hmat.emissive=new THREE.Color(0x22d3ee);
+          hmat.emissiveIntensity=0.4;
+          c.material=hmat;
+        }
+      });
+    }
+  },[]);
+
   // Native canvas mouse events — prevents browser autoscroll on middle button
   useEffect(()=>{
     const cv=canvasRef.current; if(!cv)return;
     const onDown=e=>{
       if(resizingRef.current)return;
       if(e.button===1){
-        e.preventDefault(); // stop browser autoscroll
+        e.preventDefault();
         midDown.current=true; lastM.current={x:e.clientX,y:e.clientY}; return;
       }
       if(e.button===0&&e.target.tagName!=="INPUT"){mouseDown.current=true;lastM.current={x:e.clientX,y:e.clientY};}
@@ -408,7 +439,28 @@ export default function RobotViewer(){
       camAngle.current.phi=Math.max(0.1,Math.min(Math.PI-0.1,camAngle.current.phi+dy*0.005));
       updateCam();
     }
-  },[updateCam]);
+    // Raycasting for hover — only when not dragging
+    if(!mouseDown.current&&!midDown.current&&sceneRef.current&&cameraRef.current&&robotGroupRef.current){
+      const cv=canvasRef.current;if(!cv)return;
+      const rect=cv.getBoundingClientRect();
+      const mouse=new THREE.Vector2(
+        ((e.clientX-rect.left)/rect.width)*2-1,
+        -((e.clientY-rect.top)/rect.height)*2+1
+      );
+      raycasterRef.current.setFromCamera(mouse,cameraRef.current);
+      const hits=raycasterRef.current.intersectObject(robotGroupRef.current,true);
+      // Find first hit that has a linkName tag
+      const hit=hits.find(h=>h.object.userData.linkName);
+      if(hit){
+        const ln=hit.object.userData.linkName;
+        highlightLink(ln);
+        setHoverInfo({linkName:ln,x:e.clientX,y:e.clientY});
+      } else {
+        highlightLink(null);
+        setHoverInfo(null);
+      }
+    }
+  },[updateCam,highlightLink]);
   const onMU=useCallback(e=>{if(e.button===1)midDown.current=false;else mouseDown.current=false;},[]);
   const onWh=useCallback(e=>{camAngle.current.radius=Math.max(0.2,Math.min(20,camAngle.current.radius+e.deltaY*0.003));updateCam();},[updateCam]);
 
@@ -485,7 +537,7 @@ export default function RobotViewer(){
 
       {/* Canvas */}
       <div style={{flex:1,position:"relative",minWidth:0}}>
-        <canvas ref={canvasRef} style={{width:"100%",height:"100%",cursor:"grab",background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
+        <canvas ref={canvasRef} style={{width:"100%",height:"100%",cursor:hoverInfo?"crosshair":"grab",background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
@@ -567,6 +619,76 @@ export default function RobotViewer(){
 
         {/* Info */}
         {robot&&(<div style={{position:"absolute",bottom:16,left:16,padding:"8px 14px",background:`${C.panel}ee`,borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.dim,zIndex:20,display:"flex",gap:16,alignItems:"center"}}><span><span style={{color:C.accent}}>●</span> {robot.name}</span><span>{linkNames.length} links</span><span>{jEntries.length} joints</span><span style={{color:C.accent}}>Up:{upSign>0?"+":"-"}{upAxis}</span></div>)}
+
+        {/* Hover tooltip */}
+        {hoverInfo&&robot&&(()=>{
+          const ln=hoverInfo.linkName;
+          const linkData=robot.links[ln];
+          const inertial=linkData?.inertial;
+          // Find connected joints
+          const parentJoint=Object.values(robot.joints).find(j=>j.child===ln);
+          const childJoints=Object.values(robot.joints).filter(j=>j.parent===ln);
+          const cv=canvasRef.current;
+          if(!cv)return null;
+          const rect=cv.getBoundingClientRect();
+          const tx=hoverInfo.x-rect.left;
+          const ty=hoverInfo.y-rect.top;
+          const tipW=240,tipH=200;
+          const left=tx+tipW+16>rect.width?tx-tipW-8:tx+16;
+          const top=ty+tipH>rect.height?ty-tipH:ty;
+          return(
+            <div style={{position:"absolute",left,top,zIndex:30,background:darkMode?"rgba(17,24,39,0.97)":"rgba(255,255,255,0.97)",border:`1px solid ${C.accent}55`,borderRadius:10,padding:"12px 14px",minWidth:220,maxWidth:280,boxShadow:"0 8px 32px rgba(0,0,0,0.4)",pointerEvents:"none",fontSize:11,lineHeight:1.6}}>
+              {/* Link name header */}
+              <div style={{fontWeight:700,fontSize:13,color:C.accent,marginBottom:8,borderBottom:`1px solid ${C.border}`,paddingBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                <span style={{color:"#34d399",fontSize:10}}>■</span>{ln}
+              </div>
+              {/* Geometry info */}
+              {linkData?.visuals?.length>0&&(
+                <div style={{marginBottom:6}}>
+                  <div style={{color:C.dim,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Geometry</div>
+                  {linkData.visuals.map((v,i)=>(
+                    <div key={i} style={{color:C.text}}>
+                      {v.type==="box"&&`Box ${v.size.map(s=>s.toFixed(3)).join(" × ")} m`}
+                      {v.type==="cylinder"&&`Cylinder r=${v.radius.toFixed(3)}m l=${v.length.toFixed(3)}m`}
+                      {v.type==="sphere"&&`Sphere r=${v.radius.toFixed(3)}m`}
+                      {v.type==="mesh"&&`Mesh: ${v.filename.split("/").pop()}`}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Inertial */}
+              {inertial&&(
+                <div style={{marginBottom:6}}>
+                  <div style={{color:C.dim,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Inertial</div>
+                  <div style={{color:C.text}}>Mass: <span style={{color:C.accent}}>{inertial.mass.toFixed(4)} kg</span></div>
+                  {inertial.inertia&&(
+                    <div style={{color:C.dim,fontSize:10}}>
+                      Ixx={inertial.inertia.ixx.toExponential(2)} Iyy={inertial.inertia.iyy.toExponential(2)} Izz={inertial.inertia.izz.toExponential(2)}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Parent joint */}
+              {parentJoint&&(
+                <div style={{marginBottom:4}}>
+                  <div style={{color:C.dim,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Parent Joint</div>
+                  <div style={{color:C.text}}><span style={{color:"#ffaa00"}}>◎</span> {parentJoint.name}</div>
+                  <div style={{color:C.dim,fontSize:10}}>{parentJoint.type} · axis [{parentJoint.axis.join(",")}]</div>
+                </div>
+              )}
+              {/* Child joints */}
+              {childJoints.length>0&&(
+                <div>
+                  <div style={{color:C.dim,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Child Joints ({childJoints.length})</div>
+                  {childJoints.slice(0,3).map(j=>(
+                    <div key={j.name} style={{color:C.text,fontSize:10}}><span style={{color:"#ffaa00"}}>◎</span> {j.name} <span style={{color:C.dim}}>({j.type})</span></div>
+                  ))}
+                  {childJoints.length>3&&<div style={{color:C.dim,fontSize:10}}>+{childJoints.length-3} more</div>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         {loading&&(<div style={{position:"absolute",inset:0,background:"rgba(10,14,23,0.85)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:50,gap:16}}><div style={{width:48,height:48,border:`3px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",animation:"spin 1s linear infinite"}}/><div style={{fontSize:14,color:C.text,fontWeight:600}}>{loadMsg||T.loading}</div></div>)}
       </div>
 
