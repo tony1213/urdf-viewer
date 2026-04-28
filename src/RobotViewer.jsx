@@ -15,11 +15,36 @@ function parseDAE(text){
   for(const el of doc.querySelectorAll("float_array")){const id=el.getAttribute("id");if(id)fas[id]=el.textContent.trim().split(/\s+/).map(Number);}
   const getSrc=sid=>{const s=doc.getElementById(sid.replace("#",""));if(!s)return null;const f=s.querySelector("float_array");if(!f)return null;return fas[f.getAttribute("id")]||f.textContent.trim().split(/\s+/).map(Number);};
   const upEl=doc.querySelector("up_axis");const isYup=upEl&&upEl.textContent.trim()==="Y_UP";
-  // NOTE: node matrix transforms are intentionally NOT applied.
-  // Collada geometry vertices are already in the correct local link frame.
-  // The <node><matrix> in DAE files exported from Blender is an object-level
-  // transform not relevant to URDF link geometry.
+
+  // Build geomId -> matrix map from visual_scene nodes
+  // Collada node matrix is row-major: [r0c0,r0c1,r0c2,r0c3, r1c0,...r3c3]
+  // We store it as a flat 16-element array for manual multiplication
+  const nodeMatrix={};
+  for(const node of doc.querySelectorAll("visual_scene node")){
+    const matEl=node.querySelector("matrix");
+    const geomEl=node.querySelector("instance_geometry");
+    if(matEl&&geomEl){
+      const gid=geomEl.getAttribute("url").replace("#","");
+      nodeMatrix[gid]=matEl.textContent.trim().split(/\s+/).map(Number);
+    }
+  }
+  // Manual 4x4 row-major matrix * vertex (homogeneous)
+  const applyMat=(m,x,y,z)=>[
+    m[0]*x+m[1]*y+m[2]*z+m[3],
+    m[4]*x+m[5]*y+m[6]*z+m[7],
+    m[8]*x+m[9]*y+m[10]*z+m[11]
+  ];
+  const applyMatN=(m,x,y,z)=>{
+    // Normal transform: inverse-transpose of upper-left 3x3
+    // For rotation-only matrices (no non-uniform scale), this equals applying the same rotation
+    const [nx,ny,nz]=[m[0]*x+m[1]*y+m[2]*z, m[4]*x+m[5]*y+m[6]*z, m[8]*x+m[9]*y+m[10]*z];
+    const len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+    return [nx/len,ny/len,nz/len];
+  };
+
   for(const me of doc.querySelectorAll("geometry mesh")){
+    const gid=me.closest("geometry")?.getAttribute("id")||"";
+    const M=nodeMatrix[gid]||null;
     const te=me.querySelector("triangles")||me.querySelector("polylist");if(!te)continue;
     let pd=null,nd=null;const offs={};let mo=0;
     for(const inp of te.querySelectorAll("input")){
@@ -32,10 +57,10 @@ function parseDAE(text){
     const ids=pe.textContent.trim().split(/\s+/).map(Number),st=mo+1,v=[],n=[];
     for(let i=0;i<ids.length;i+=st){
       const vi=ids[i+(offs.VERTEX?.offset||0)];
-      let vx=pd[vi*3],vy=pd[vi*3+1],vz=pd[vi*3+2];
+      let [vx,vy,vz]=M?applyMat(M,pd[vi*3],pd[vi*3+1],pd[vi*3+2]):[pd[vi*3],pd[vi*3+1],pd[vi*3+2]];
       if(isYup){const ty=vy;vy=-vz;vz=ty;}
       v.push(vx,vy,vz);
-      if(nd&&offs.NORMAL){const ni=ids[i+offs.NORMAL.offset];let nx=nd[ni*3],ny=nd[ni*3+1],nz=nd[ni*3+2];if(isYup){const tny=ny;ny=-nz;nz=tny;}n.push(nx,ny,nz);}
+      if(nd&&offs.NORMAL){const ni=ids[i+offs.NORMAL.offset];let [nx,ny,nz]=M?applyMatN(M,nd[ni*3],nd[ni*3+1],nd[ni*3+2]):[nd[ni*3],nd[ni*3+1],nd[ni*3+2]];if(isYup){const tny=ny;ny=-nz;nz=tny;}n.push(nx,ny,nz);}
     }
     const g=new THREE.BufferGeometry();
     g.setAttribute("position",new THREE.BufferAttribute(new Float32Array(v),3));
