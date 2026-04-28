@@ -583,6 +583,39 @@ export default function RobotViewer(){
       if(Math.abs(dz)>0.002){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`${(dz*1000).toFixed(1)}`,zMid,"#4488ff",0.05,true);scene.add(zl);m.labels.push(zl);}
     }
   },[]);
+  // Snap hit point to nearest mesh vertex (world space)
+  const snapToVertex=(hit)=>{
+    const mesh=hit.object;
+    const geo=mesh.geometry;
+    const posAttr=geo.getAttribute("position");
+    if(!posAttr)return hit.point.clone();
+    const face=hit.face;
+    // Check the 3 vertices of the hit triangle first (fastest, most relevant)
+    const candidates=face?[face.a,face.b,face.c]:[];
+    // Also check nearby vertices for better snapping
+    const hitLocal=hit.point.clone().applyMatrix4(mesh.matrixWorld.clone().invert());
+    let bestDist=Infinity,bestIdx=-1;
+    if(candidates.length>0){
+      // First pass: only face vertices
+      for(const idx of candidates){
+        const vx=posAttr.getX(idx),vy=posAttr.getY(idx),vz=posAttr.getZ(idx);
+        const d=(vx-hitLocal.x)**2+(vy-hitLocal.y)**2+(vz-hitLocal.z)**2;
+        if(d<bestDist){bestDist=d;bestIdx=idx;}
+      }
+    }else{
+      // Fallback: scan all vertices (slower)
+      for(let i=0;i<posAttr.count;i++){
+        const vx=posAttr.getX(i),vy=posAttr.getY(i),vz=posAttr.getZ(i);
+        const d=(vx-hitLocal.x)**2+(vy-hitLocal.y)**2+(vz-hitLocal.z)**2;
+        if(d<bestDist){bestDist=d;bestIdx=i;}
+      }
+    }
+    if(bestIdx<0)return hit.point.clone();
+    const snapped=new THREE.Vector3(posAttr.getX(bestIdx),posAttr.getY(bestIdx),posAttr.getZ(bestIdx));
+    snapped.applyMatrix4(mesh.matrixWorld); // local -> world
+    return snapped;
+  };
+
   // Measure mode click handler
   const handleMeasureClick=useCallback((e)=>{
     if(!measureMode||!robotGroupRef.current||!cameraRef.current)return;
@@ -596,14 +629,12 @@ export default function RobotViewer(){
     if(!hit)return;
     const scene=sceneRef.current;if(!scene)return;
     const m=measureRef.current;
-    const worldPt=hit.point.clone();
+    const worldPt=snapToVertex(hit); // snap to nearest vertex
     const linkName=hit.object.userData.linkName;
     const linkObj=linkObjRef.current[linkName];
-    // Convert world point to link local space so marker stays on the surface
     const localPt=worldPt.clone();
     if(linkObj){linkObj.updateWorldMatrix(true,false);localPt.applyMatrix4(linkObj.matrixWorld.clone().invert());}
     if(!m.start||m.end){
-      // First click: set start point
       clearMeasure();
       m.start=worldPt;m.end=null;
       const marker=createMeasureMarker(localPt,0x22ee66);
@@ -612,7 +643,6 @@ export default function RobotViewer(){
       m.markers.push({obj:marker,parent:linkObj||scene,linkName});
       m.startInfo={linkName,localPt:localPt.clone()};
     }else{
-      // Second click: set end point
       m.end=worldPt;
       const marker=createMeasureMarker(localPt,0xff4444);
       marker.userData.isMeasureMarker=true;
@@ -634,7 +664,7 @@ export default function RobotViewer(){
     const hits=raycasterRef.current.intersectObject(robotGroupRef.current,true);
     const hit=hits.find(h=>h.object.userData.linkName);
     if(hit){
-      updateMeasureLine(measureRef.current.start,hit.point.clone(),true);
+      updateMeasureLine(measureRef.current.start,snapToVertex(hit),true);
     }
   },[measureMode,updateMeasureLine]);
   // Clear measure when mode is turned off
