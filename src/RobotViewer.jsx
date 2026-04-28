@@ -778,7 +778,9 @@ export default function RobotViewer(){
           {/* Tab content */}
           <div style={{flex:1,overflowY:"auto"}}>
             {/* ── Joints tab ── */}
-            {sidebarTab==="joints"&&(
+            {sidebarTab==="joints"&&(()=>{
+              const inputRefs={};
+              return(
               <div style={{padding:"8px 0"}}>
                 {/* Unit toggle header */}
                 <div style={{padding:"6px 20px 8px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -813,11 +815,20 @@ export default function RobotViewer(){
                       </div>
                       <input type="range" style={{width:"100%",appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer",marginBottom:6}}
                         min={lower} max={upper} step={0.001} value={value}
-                        onChange={e=>updateJoint(name,+e.target.value)}/>
+                        onChange={e=>{
+                          updateJoint(name,+e.target.value);
+                          // Sync input box display value directly via DOM
+                          const inp=inputRefs[name];
+                          if(inp&&document.activeElement!==inp){
+                            const newDisp=(!isPrismatic&&!useRadians)?r2d(+e.target.value):+(+e.target.value).toFixed(4);
+                            inp.value=String(newDisp);
+                          }
+                        }}/>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
                         <span style={{fontSize:10,color:C.dim,minWidth:38,flexShrink:0}}>{dispLo}{unit}</span>
                         <input type="number"
                           key={`${name}-${useRadians}`}
+                          ref={el=>{if(el)inputRefs[name]=el;}}
                           defaultValue={dispVal}
                           style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,color:C.accent,fontSize:11,fontWeight:600,textAlign:"center",padding:"3px 4px",outline:"none",fontFamily:"inherit",minWidth:0,WebkitAppearance:"none",MozAppearance:"textfield"}}
                           step={(!isPrismatic&&!useRadians)?1:0.01}
@@ -831,7 +842,8 @@ export default function RobotViewer(){
                   );
                 })}
               </div>
-            )}
+              );
+            })()}
 
             {/* ── Links opacity tab ── */}
             {sidebarTab==="links"&&(
