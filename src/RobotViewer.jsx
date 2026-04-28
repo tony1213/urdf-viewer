@@ -241,6 +241,8 @@ export default function RobotViewer(){
   const[sidebarTab,setSidebarTab]=useState("joints"); // "joints"|"files"|"tree"
   const[sidebarWidth,setSidebarWidth]=useState(320);
   const[darkMode,setDarkMode]=useState(true);
+  const[lang,setLang]=useState("zh"); // "zh"|"en"
+  const[gridSize,setGridSize]=useState(1.0); // meters per grid cell, total size = gridSize * 10
   const resizingRef=useRef(false);
   const handleRef=useRef(null);
 
@@ -289,7 +291,7 @@ export default function RobotViewer(){
     return()=>{window.removeEventListener("resize",resize);cancelAnimationFrame(animRef.current);ren.dispose();};
   },[]);
 
-  useEffect(()=>{const s=sceneRef.current;if(!s)return;s.children.filter(c=>c.userData.isHelper).forEach(c=>s.remove(c));if(grid){const gc=darkMode?[0x1a2332,0x131b2a]:[0xcccccc,0xdddddd];const g=new THREE.GridHelper(4,40,gc[0],gc[1]);g.userData.isHelper=true;s.add(g);}if(axes){const a=new THREE.AxesHelper(0.5);a.userData.isHelper=true;s.add(a);}},[grid,axes,darkMode]);
+  useEffect(()=>{const s=sceneRef.current;if(!s)return;s.children.filter(c=>c.userData.isHelper).forEach(c=>s.remove(c));if(grid){const gc=darkMode?[0x1a2332,0x131b2a]:[0xcccccc,0xdddddd];const totalSize=gridSize*10;const divisions=10;const g=new THREE.GridHelper(totalSize,divisions,gc[0],gc[1]);g.userData.isHelper=true;s.add(g);}if(axes){const a=new THREE.AxesHelper(0.5);a.userData.isHelper=true;s.add(a);}},[grid,axes,darkMode,gridSize]);
 
   // Update ground color on dark/light mode
   useEffect(()=>{
@@ -430,6 +432,34 @@ export default function RobotViewer(){
 
   const C=darkMode?C_DARK:C_LIGHT;
 
+  const T=lang==="zh"?{
+    jointCtrl:"关节控制",jointOpacity:"关节透明度",folder:"文件",noJoints:"没有可控关节",
+    showAll:"全部显示",halfTrans:"全部半透",hideAll:"全部隐藏",resetJoints:"↺ 重置关节",unload:"✕ 卸载模型",
+    dragFolder:"拖放 URDF 文件夹",supportMesh:"支持 STL / OBJ / DAE mesh",selectFolder:"📂 选择文件夹",
+    dropRelease:"释放以加载 URDF 文件夹",loading:"加载中...",scanFolder:"扫描文件夹...",
+    foundFiles:n=>`找到 ${n} 个文件...`,loadFile:n=>`加载 ${n}...`,buildScene:n=>`构建场景 · ${n} 个 mesh...`,
+    noUrdf:"未在文件夹中找到 .urdf 文件",parseUrdf:"解析 URDF...",
+    grid:"网格",coordAxes:"坐标轴",wireframe:"线框",toggleBg:"切换背景",
+    jointAxes:"关节坐标系 (RGB)",com:"质心 (COM)",inertia:"转动惯量",axisSize:"尺寸",
+    coordSys:"坐标系 (Up Axis)",heightOffset:"模型高度偏移",autoGround:"⬇ 自动落地",viewPresets:"视角预设",
+    front:"前",back:"后",left:"左",right:"右",top:"上",persp:"透视",
+    urdfTree:"🔗 URDF 树",folderTree:"📁 文件夹",noFolderData:"无文件夹数据",
+    loadedFiles:"已加载文件",gridSizeLabel:"网格大小",
+  }:{
+    jointCtrl:"Joints",jointOpacity:"Opacity",folder:"Files",noJoints:"No controllable joints",
+    showAll:"Show All",halfTrans:"Semi-Trans",hideAll:"Hide All",resetJoints:"↺ Reset Joints",unload:"✕ Unload",
+    dragFolder:"Drop URDF Folder",supportMesh:"Supports STL / OBJ / DAE mesh",selectFolder:"📂 Select Folder",
+    dropRelease:"Drop to load URDF folder",loading:"Loading...",scanFolder:"Scanning folder...",
+    foundFiles:n=>`Found ${n} files...`,loadFile:n=>`Loading ${n}...`,buildScene:n=>`Building scene · ${n} meshes...`,
+    noUrdf:"No .urdf file found in folder",parseUrdf:"Parsing URDF...",
+    grid:"Grid",coordAxes:"Axes",wireframe:"Wireframe",toggleBg:"Toggle BG",
+    jointAxes:"Joint Axes (RGB)",com:"COM",inertia:"Inertia",axisSize:"Size",
+    coordSys:"Coord System (Up Axis)",heightOffset:"Model Height Offset",autoGround:"⬇ Auto Ground",viewPresets:"View Presets",
+    front:"Front",back:"Back",left:"Left",right:"Right",top:"Top",persp:"Persp",
+    urdfTree:"🔗 URDF Tree",folderTree:"📁 Folder",noFolderData:"No folder data",
+    loadedFiles:"Loaded Files",gridSizeLabel:"Grid Size",
+  };
+
   const TBtn=({active,onClick,children,title,color})=>(
     <button className="tb" title={title} onClick={onClick} style={{width:36,height:36,borderRadius:8,background:active?(color||C.accent):C.panel,border:`1px solid ${active?(color||C.accent):C.border}`,color:active?C.bg:C.dim,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:14,transition:"all 0.15s",padding:0}}>{children}</button>
   );
@@ -459,29 +489,29 @@ export default function RobotViewer(){
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
-          <TBtn active={grid} onClick={()=>setGrid(!grid)} title="网格">⊞</TBtn>
-          <TBtn active={axes} onClick={()=>setAxes(!axes)} title="坐标轴">✛</TBtn>
-          <TBtn active={wire} onClick={()=>setWire(!wire)} title="线框">△</TBtn>
-          <TBtn active={!darkMode} onClick={()=>setDarkMode(!darkMode)} title={darkMode?"切换白色背景":"切换黑色背景"} color={darkMode?C.accent:"#334155"}>
+          <TBtn active={grid} onClick={()=>setGrid(!grid)} title={T.grid}>⊞</TBtn>
+          <TBtn active={axes} onClick={()=>setAxes(!axes)} title={T.coordAxes}>✛</TBtn>
+          <TBtn active={wire} onClick={()=>setWire(!wire)} title={T.wireframe}>△</TBtn>
+          <TBtn active={!darkMode} onClick={()=>setDarkMode(!darkMode)} title={T.toggleBg} color={darkMode?C.accent:"#334155"}>
             {darkMode?"☀":"🌙"}
           </TBtn>
           <div style={{height:1,background:C.border,margin:"2px 0"}}/>
-          <TBtn active={showJointAxes} onClick={()=>setShowJointAxes(!showJointAxes)} title="关节坐标系 (RGB)" color="#ffaa00">
+          <TBtn active={showJointAxes} onClick={()=>setShowJointAxes(!showJointAxes)} title={T.jointAxes} color="#ffaa00">
             <svg width="18" height="18" viewBox="0 0 18 18">
               <line x1="4" y1="14" x2="16" y2="14" stroke="#ff4444" strokeWidth="2" strokeLinecap="round"/>
               <line x1="4" y1="14" x2="4" y2="2" stroke="#44ff44" strokeWidth="2" strokeLinecap="round"/>
               <line x1="4" y1="14" x2="1" y2="17" stroke="#4488ff" strokeWidth="2" strokeLinecap="round"/>
             </svg>
           </TBtn>
-          <TBtn active={showCOM} onClick={()=>setShowCOM(!showCOM)} title="质心 (COM)" color="#ff4444">
+          <TBtn active={showCOM} onClick={()=>setShowCOM(!showCOM)} title={T.com} color="#ff4444">
             <svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="none" stroke="currentColor" strokeWidth="1.5"/><circle cx="9" cy="9" r="1.5" fill="currentColor"/><line x1="9" y1="2" x2="9" y2="5" stroke="currentColor" strokeWidth="1"/><line x1="9" y1="13" x2="9" y2="16" stroke="currentColor" strokeWidth="1"/><line x1="2" y1="9" x2="5" y2="9" stroke="currentColor" strokeWidth="1"/><line x1="13" y1="9" x2="16" y2="9" stroke="currentColor" strokeWidth="1"/></svg>
           </TBtn>
-          {hasInertial&&<TBtn active={showInertia} onClick={()=>setShowInertia(!showInertia)} title="转动惯量" color="#8844ff">
+          {hasInertial&&<TBtn active={showInertia} onClick={()=>setShowInertia(!showInertia)} title={T.inertia} color="#8844ff">
             <svg width="18" height="18" viewBox="0 0 18 18"><ellipse cx="9" cy="9" rx="7" ry="4" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/><ellipse cx="9" cy="9" rx="4" ry="7" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/></svg>
           </TBtn>}
           {showJointAxes&&(
             <div style={{background:`${C.panel}ee`,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 6px",width:36,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-              <div style={{fontSize:8,color:"#ffaa00",fontWeight:700}}>尺寸</div>
+              <div style={{fontSize:8,color:"#ffaa00",fontWeight:700}}>{T.axisSize}</div>
               <input type="range" min={0.02} max={0.5} step={0.01} value={axisScale} onChange={e=>setAxisScale(+e.target.value)}
                 style={{width:60,transform:"rotate(-90deg)",transformOrigin:"center",margin:"20px 0",appearance:"none",WebkitAppearance:"none",height:3,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
               <div style={{fontSize:8,color:C.dim}}>{axisScale.toFixed(2)}</div>
@@ -499,24 +529,35 @@ export default function RobotViewer(){
           </div>
           {showCoordPanel&&(
             <div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:10,padding:16,minWidth:240,boxShadow:"0 8px 32px rgba(0,0,0,0.5)"}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>坐标系 (Up Axis)</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.08em"}}>{T.coordSys}</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:10}}>
                 {[{l:"+Z",a:"Z",s:1,c:"#60a5fa"},{l:"-Z",a:"Z",s:-1,c:"#60a5fa"},{l:"+Y",a:"Y",s:1,c:"#34d399"},{l:"-Y",a:"Y",s:-1,c:"#34d399"},{l:"+X",a:"X",s:1,c:"#f43f5e"},{l:"-X",a:"X",s:-1,c:"#f43f5e"}].map(item=>{
                   const act=upAxis===item.a&&upSign===item.s;
                   return <button key={item.l} className="cb" onClick={()=>{setUpAxis(item.a);setUpSign(item.s);}} style={{padding:"7px 4px",borderRadius:6,border:`1.5px solid ${act?item.c:C.border}`,background:act?item.c+"22":C.bg,color:act?item.c:C.dim,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'JetBrains Mono',monospace"}}>{item.l}</button>;
                 })}
               </div>
-              <div style={{fontSize:11,fontWeight:700,color:C.text,marginTop:8,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>模型高度偏移</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.text,marginTop:8,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>{T.heightOffset}</div>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                 <input type="range" min={-2} max={2} step={0.001} value={modelOffset.y||0} onChange={e=>setModelOffset(prev=>({...prev,y:+e.target.value}))} style={{flex:1,appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
                 <span style={{fontSize:11,color:C.accent,fontVariantNumeric:"tabular-nums",minWidth:50,textAlign:"right"}}>{(modelOffset.y||0).toFixed(3)}</span>
               </div>
-              <button className="cb" onClick={autoGround} style={{width:"100%",padding:"6px",borderRadius:6,border:`1px solid ${C.accent}44`,background:`${C.accent}11`,color:C.accent,fontSize:11,fontWeight:600,cursor:"pointer",marginBottom:8}}>⬇ 自动落地</button>
-              <div style={{fontSize:11,fontWeight:700,color:C.text,marginTop:4,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>视角预设</div>
+              <button className="cb" onClick={autoGround} style={{width:"100%",padding:"6px",borderRadius:6,border:`1px solid ${C.accent}44`,background:`${C.accent}11`,color:C.accent,fontSize:11,fontWeight:600,cursor:"pointer",marginBottom:8}}>{T.autoGround}</button>
+              <div style={{fontSize:11,fontWeight:700,color:C.text,marginTop:4,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>{T.viewPresets}</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-                {[{l:"前",th:Math.PI/2,ph:Math.PI/2},{l:"后",th:-Math.PI/2,ph:Math.PI/2},{l:"左",th:Math.PI,ph:Math.PI/2},{l:"右",th:0,ph:Math.PI/2},{l:"上",th:Math.PI/4,ph:0.15},{l:"透视",th:Math.PI/4,ph:Math.PI/3}].map(item=>(
+                {[{l:T.front,th:Math.PI/2,ph:Math.PI/2},{l:T.back,th:-Math.PI/2,ph:Math.PI/2},{l:T.left,th:Math.PI,ph:Math.PI/2},{l:T.right,th:0,ph:Math.PI/2},{l:T.top,th:Math.PI/4,ph:0.15},{l:T.persp,th:Math.PI/4,ph:Math.PI/3}].map(item=>(
                   <button key={item.l} className="cb" onClick={()=>{camAngle.current.theta=item.th;camAngle.current.phi=item.ph;updateCam();}} style={{padding:"5px 4px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'JetBrains Mono',monospace"}}>{item.l}</button>
                 ))}
+              </div>
+              {/* Grid size */}
+              <div style={{fontSize:11,fontWeight:700,color:C.text,marginTop:10,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>{T.gridSizeLabel}</div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input type="range" min={0.1} max={5} step={0.1} value={gridSize} onChange={e=>setGridSize(+e.target.value)} style={{flex:1,appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
+                <span style={{fontSize:11,color:C.accent,fontVariantNumeric:"tabular-nums",minWidth:40,textAlign:"right"}}>{gridSize.toFixed(1)}m</span>
+              </div>
+              {/* Language toggle */}
+              <div style={{marginTop:10,display:"flex",gap:6}}>
+                <button className="cb" onClick={()=>setLang("zh")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${lang==="zh"?C.accent:C.border}`,background:lang==="zh"?`${C.accent}15`:C.bg,color:lang==="zh"?C.accent:C.dim,fontSize:11,fontWeight:600,cursor:"pointer"}}>中文</button>
+                <button className="cb" onClick={()=>setLang("en")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${lang==="en"?C.accent:C.border}`,background:lang==="en"?`${C.accent}15`:C.bg,color:lang==="en"?C.accent:C.dim,fontSize:11,fontWeight:600,cursor:"pointer"}}>EN</button>
               </div>
             </div>
           )}
@@ -524,7 +565,7 @@ export default function RobotViewer(){
 
         {/* Info */}
         {robot&&(<div style={{position:"absolute",bottom:16,left:16,padding:"8px 14px",background:`${C.panel}ee`,borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.dim,zIndex:20,display:"flex",gap:16,alignItems:"center"}}><span><span style={{color:C.accent}}>●</span> {robot.name}</span><span>{linkNames.length} links</span><span>{jEntries.length} joints</span><span style={{color:C.accent}}>Up:{upSign>0?"+":"-"}{upAxis}</span></div>)}
-        {loading&&(<div style={{position:"absolute",inset:0,background:"rgba(10,14,23,0.85)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:50,gap:16}}><div style={{width:48,height:48,border:`3px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",animation:"spin 1s linear infinite"}}/><div style={{fontSize:14,color:C.text,fontWeight:600}}>{loadMsg||"加载中..."}</div></div>)}
+        {loading&&(<div style={{position:"absolute",inset:0,background:"rgba(10,14,23,0.85)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:50,gap:16}}><div style={{width:48,height:48,border:`3px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",animation:"spin 1s linear infinite"}}/><div style={{fontSize:14,color:C.text,fontWeight:600}}>{loadMsg||T.loading}</div></div>)}
       </div>
 
       {/* ─── Resize Handle ─── */}
@@ -543,19 +584,19 @@ export default function RobotViewer(){
         {!robot?(
           <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,gap:16}}>
             <div style={{fontSize:52,opacity:0.25}}>📁</div>
-            <div style={{fontSize:14,fontWeight:700,color:C.text}}>拖放 URDF 文件夹</div>
-            <div style={{fontSize:12,color:C.dim,textAlign:"center",lineHeight:1.7,maxWidth:260}}>支持 STL / OBJ / DAE mesh</div>
+            <div style={{fontSize:14,fontWeight:700,color:C.text}}>{T.dragFolder}</div>
+            <div style={{fontSize:12,color:C.dim,textAlign:"center",lineHeight:1.7,maxWidth:260}}>{T.supportMesh}</div>
             <div style={{width:"100%",padding:12,borderRadius:8,border:`1px dashed ${C.border}`,fontSize:11,color:C.dim,lineHeight:1.8}}>
               <div style={{fontFamily:"monospace"}}>your_robot/<br/>├── urdf/robot.urdf<br/>└── meshes/*.stl</div>
             </div>
-            <button className="fb" style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.accent}44`,background:`${C.accent}11`,color:C.accent,fontSize:12,fontWeight:600,cursor:"pointer"}} onClick={()=>folderRef.current?.click()}>📂 选择文件夹</button>
+            <button className="fb" style={{width:"100%",padding:"10px",borderRadius:8,border:`1px solid ${C.accent}44`,background:`${C.accent}11`,color:C.accent,fontSize:12,fontWeight:600,cursor:"pointer"}} onClick={()=>folderRef.current?.click()}>{T.selectFolder}</button>
           </div>
         ):(<>
           {/* Tab bar */}
           <div style={{display:"flex",borderBottom:`1px solid ${C.border}`}}>
-            <TabBtn id="joints" label="关节控制"/>
-            <TabBtn id="links" label="链接透明度"/>
-            <TabBtn id="tree" label="浏览器"/>
+            <TabBtn id="joints" label={T.jointCtrl}/>
+            <TabBtn id="links" label={T.jointOpacity}/>
+            <TabBtn id="tree" label={T.folder}/>
           </div>
 
           {/* Tab content */}
@@ -563,7 +604,7 @@ export default function RobotViewer(){
             {/* ── Joints tab ── */}
             {sidebarTab==="joints"&&(
               <div style={{padding:"8px 0"}}>
-                {jEntries.length===0&&<div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>没有可控关节</div>}
+                {jEntries.length===0&&<div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>{T.noJoints}</div>}
                 {jEntries.map(([name,value])=>{
                   const o=jointObjRef.current[name];if(!o)return null;
                   const{lower,upper,jointType}=o.userData;
@@ -587,9 +628,9 @@ export default function RobotViewer(){
               <div style={{padding:"8px 0"}}>
                 {/* Global controls */}
                 <div style={{padding:"8px 20px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:6}}>
-                  <button className="cb" onClick={()=>{const lo={};for(const ln of linkNames)lo[ln]=1;setLinkOpacities(lo);}} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>全部显示</button>
-                  <button className="cb" onClick={()=>{const lo={};for(const ln of linkNames)lo[ln]=0.3;setLinkOpacities(lo);}} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>全部半透</button>
-                  <button className="cb" onClick={()=>{const lo={};for(const ln of linkNames)lo[ln]=0;setLinkOpacities(lo);}} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>全部隐藏</button>
+                  <button className="cb" onClick={()=>{const lo={};for(const ln of linkNames)lo[ln]=1;setLinkOpacities(lo);}} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.showAll}</button>
+                  <button className="cb" onClick={()=>{const lo={};for(const ln of linkNames)lo[ln]=0.3;setLinkOpacities(lo);}} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.halfTrans}</button>
+                  <button className="cb" onClick={()=>{const lo={};for(const ln of linkNames)lo[ln]=0;setLinkOpacities(lo);}} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.hideAll}</button>
                 </div>
                 {linkNames.map(ln=>{
                   const op=linkOpacities[ln]??1;
@@ -620,18 +661,18 @@ export default function RobotViewer(){
                     return null; // handled below
                   })}
                 </div>
-                <TreeBrowser files={files} urdfTree={urdfTree} folderTree={folderTree} robot={robot}/>
+                <TreeBrowser files={files} urdfTree={urdfTree} folderTree={folderTree} robot={robot} T={T}/>
               </div>
             )}
           </div>
 
-          <button className="rb" style={{padding:"8px 16px",margin:"8px 20px 4px",background:`${C.danger}22`,border:`1px solid ${C.danger}44`,borderRadius:6,color:C.danger,fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",textAlign:"center"}} onClick={resetJoints}>↺ 重置关节</button>
+          <button className="rb" style={{padding:"8px 16px",margin:"8px 20px 4px",background:`${C.danger}22`,border:`1px solid ${C.danger}44`,borderRadius:6,color:C.danger,fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",textAlign:"center"}} onClick={resetJoints}>{T.resetJoints}</button>
           <button className="rb" style={{padding:"8px 16px",margin:"0 20px 10px",background:`${C.accent}22`,border:`1px solid ${C.accent}44`,borderRadius:6,color:C.accent,fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",textAlign:"center"}}
-            onClick={()=>{if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);offsetGroupRef.current=null;worldGroupRef.current=null;robotGroupRef.current=null;jointObjRef.current={};linkObjRef.current={};comRef.current=[];inertiaRef.current=[];axisRef.current=[];setRobot(null);setJointVals({});setFiles([]);setLinkOpacities({});lookTarget.current.set(0,0.3,0);camAngle.current={theta:Math.PI/4,phi:Math.PI/3,radius:2};updateCam();}}>✕ 卸载模型</button>
+            onClick={()=>{if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);offsetGroupRef.current=null;worldGroupRef.current=null;robotGroupRef.current=null;jointObjRef.current={};linkObjRef.current={};comRef.current=[];inertiaRef.current=[];axisRef.current=[];setRobot(null);setJointVals({});setFiles([]);setLinkOpacities({});lookTarget.current.set(0,0.3,0);camAngle.current={theta:Math.PI/4,phi:Math.PI/3,radius:2};updateCam();}}>{T.unload}</button>
         </>)}
       </div>
 
-      {dragging&&(<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"rgba(10,14,23,0.95)",zIndex:100,gap:16,border:`3px dashed ${C.accent}`}}><div style={{width:80,height:80,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:`${C.accent}15`,border:`2px solid ${C.accent}44`,fontSize:36}}>📁</div><div style={{fontSize:18,fontWeight:700,color:C.text}}>释放以加载 URDF 文件夹</div></div>)}
+      {dragging&&(<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"rgba(10,14,23,0.95)",zIndex:100,gap:16,border:`3px dashed ${C.accent}`}}><div style={{width:80,height:80,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:`${C.accent}15`,border:`2px solid ${C.accent}44`,fontSize:36}}>📁</div><div style={{fontSize:18,fontWeight:700,color:C.text}}>{T.dropRelease}</div></div>)}
       {error&&(<div style={{position:"absolute",top:16,left:"50%",transform:"translateX(-50%)",padding:"10px 20px",background:`${C.danger}22`,border:`1px solid ${C.danger}44`,borderRadius:8,color:C.danger,fontSize:12,zIndex:200,maxWidth:500,textAlign:"center"}}>{error}<span style={{marginLeft:12,cursor:"pointer",opacity:0.6}} onClick={()=>setError(null)}>✕</span></div>)}
     </div>
   );
@@ -673,25 +714,25 @@ function URDFJointNode({joint,robot,depth}){
 }
 
 // ─── Tree Browser sub-component ──────────────────────────────
-function TreeBrowser({files,urdfTree,folderTree,robot}){
+function TreeBrowser({files,urdfTree,folderTree,robot,T}){
   const[view,setView]=useState("urdf");
   return(
     <div>
       <div style={{display:"flex",padding:"0 16px 8px",gap:6}}>
-        <button className="cb" onClick={()=>setView("urdf")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${view==="urdf"?C.accent:C.border}`,background:view==="urdf"?`${C.accent}15`:C.bg,color:view==="urdf"?C.accent:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>🔗 URDF 树</button>
-        <button className="cb" onClick={()=>setView("folder")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${view==="folder"?C.accent:C.border}`,background:view==="folder"?`${C.accent}15`:C.bg,color:view==="folder"?C.accent:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>📁 文件夹</button>
+        <button className="cb" onClick={()=>setView("urdf")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${view==="urdf"?C_DARK.accent:C_DARK.border}`,background:view==="urdf"?`${C_DARK.accent}15`:C_DARK.bg,color:view==="urdf"?C_DARK.accent:C_DARK.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.urdfTree}</button>
+        <button className="cb" onClick={()=>setView("folder")} style={{flex:1,padding:"5px",borderRadius:5,border:`1px solid ${view==="folder"?C_DARK.accent:C_DARK.border}`,background:view==="folder"?`${C_DARK.accent}15`:C_DARK.bg,color:view==="folder"?C_DARK.accent:C_DARK.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>{T.folderTree}</button>
       </div>
       {view==="urdf"&&urdfTree&&(
         <div style={{padding:"0 4px"}}><URDFLinkNode node={urdfTree} robot={robot} depth={0}/></div>
       )}
       {view==="urdf"&&!urdfTree&&(
-        <div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>无 URDF 数据</div>
+        <div style={{padding:20,textAlign:"center",color:C_DARK.dim,fontSize:12}}>{T.noFolderData}</div>
       )}
       {view==="folder"&&folderTree&&(
         <div style={{padding:"0 8px"}}><FolderNode node={folderTree} name="root" depth={0}/></div>
       )}
       {view==="folder"&&!folderTree&&(
-        <div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>使用示例模型时无文件夹数据</div>
+        <div style={{padding:20,textAlign:"center",color:C_DARK.dim,fontSize:12}}>{T.noFolderData}</div>
       )}
     </div>
   );
