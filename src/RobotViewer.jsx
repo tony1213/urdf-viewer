@@ -297,6 +297,7 @@ export default function RobotViewer(){
   const[darkMode,setDarkMode]=useState(true);
   const[lang,setLang]=useState("zh"); // "zh"|"en"
   const[gridSize,setGridSize]=useState(1.0); // meters per grid cell, total size = gridSize * 10
+  const[useRadians,setUseRadians]=useState(false); // false=degrees, true=radians
   const resizingRef=useRef(false);
   const handleRef=useRef(null);
 
@@ -543,7 +544,7 @@ export default function RobotViewer(){
     coordSys:"坐标系 (Up Axis)",heightOffset:"模型高度偏移",autoGround:"⬇ 自动落地",viewPresets:"视角预设",
     front:"前",back:"后",left:"左",right:"右",top:"上",persp:"透视",
     urdfTree:"🔗 URDF 树",folderTree:"📁 文件夹",noFolderData:"无文件夹数据",
-    loadedFiles:"已加载文件",gridSizeLabel:"网格大小",urdfTab:"URDF",
+    loadedFiles:"已加载文件",gridSizeLabel:"网格大小",urdfTab:"URDF",degUnit:"角度",radUnit:"弧度",
   }:{
     jointCtrl:"Joints",jointOpacity:"Opacity",folder:"Files",noJoints:"No controllable joints",
     showAll:"Show All",halfTrans:"Semi-Trans",hideAll:"Hide All",resetJoints:"↺ Reset Joints",unload:"✕ Unload",
@@ -556,7 +557,7 @@ export default function RobotViewer(){
     coordSys:"Coord System (Up Axis)",heightOffset:"Model Height Offset",autoGround:"⬇ Auto Ground",viewPresets:"View Presets",
     front:"Front",back:"Back",left:"Left",right:"Right",top:"Top",persp:"Persp",
     urdfTree:"🔗 URDF Tree",folderTree:"📁 Folder",noFolderData:"No folder data",
-    loadedFiles:"Loaded Files",gridSizeLabel:"Grid Size",urdfTab:"URDF",
+    loadedFiles:"Loaded Files",gridSizeLabel:"Grid Size",urdfTab:"URDF",degUnit:"Degrees",radUnit:"Radians",
   };
 
   const TBtn=({active,onClick,children,title,color})=>(
@@ -779,19 +780,53 @@ export default function RobotViewer(){
             {/* ── Joints tab ── */}
             {sidebarTab==="joints"&&(
               <div style={{padding:"8px 0"}}>
+                {/* Unit toggle header */}
+                <div style={{padding:"6px 20px 8px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <span style={{fontSize:11,color:C.dim}}>{jEntries.length} {T.jointCtrl}</span>
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={()=>setUseRadians(false)} style={{padding:"3px 8px",borderRadius:4,border:`1px solid ${!useRadians?C.accent:C.border}`,background:!useRadians?`${C.accent}22`:C.bg,color:!useRadians?C.accent:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>°</button>
+                    <button onClick={()=>setUseRadians(true)} style={{padding:"3px 8px",borderRadius:4,border:`1px solid ${useRadians?C.accent:C.border}`,background:useRadians?`${C.accent}22`:C.bg,color:useRadians?C.accent:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>rad</button>
+                  </div>
+                </div>
                 {jEntries.length===0&&<div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>{T.noJoints}</div>}
                 {jEntries.map(([name,value])=>{
                   const o=jointObjRef.current[name];if(!o)return null;
                   const{lower,upper,jointType}=o.userData;
+                  // Convert for display
+                  const r2d=v=>v*(180/Math.PI);
+                  const d2r=v=>v*(Math.PI/180);
+                  const isPrismatic=jointType==="prismatic";
+                  // For prismatic joints: always show meters, no deg/rad
+                  const dispVal=(!isPrismatic&&!useRadians)?r2d(value):value;
+                  const dispLo=(!isPrismatic&&!useRadians)?r2d(lower):lower;
+                  const dispHi=(!isPrismatic&&!useRadians)?r2d(upper):upper;
+                  const unit=isPrismatic?"m":useRadians?"rad":"°";
                   return(
                     <div key={name} className="ji" style={{padding:"10px 20px",borderBottom:`1px solid ${C.border}`}}>
-                      <div style={{fontSize:10,color:C.dim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>{jointType}</div>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                        <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}} title={name}>{name}</span>
-                        <span style={{fontSize:11,color:C.accent,fontVariantNumeric:"tabular-nums"}}>{value.toFixed(3)}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                        <span style={{fontSize:9,color:C.dim,textTransform:"uppercase",letterSpacing:"0.08em",flexShrink:0}}>{jointType}</span>
+                        <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,color:C.text}} title={name}>{name}</span>
                       </div>
-                      <input type="range" style={{width:"100%",appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}} min={lower} max={upper} step={0.001} value={value} onChange={e=>updateJoint(name,+e.target.value)}/>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.dim,marginTop:4}}><span>{lower.toFixed(2)}</span><span>{upper.toFixed(2)}</span></div>
+                      {/* Slider */}
+                      <input type="range" style={{width:"100%",appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer",marginBottom:4}}
+                        min={lower} max={upper} step={isPrismatic?0.001:0.001} value={value}
+                        onChange={e=>updateJoint(name,+e.target.value)}/>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:10,color:C.dim,minWidth:40}}>{dispLo.toFixed(1)}{unit}</span>
+                        {/* Input box */}
+                        <input type="number"
+                          style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,color:C.accent,fontSize:11,fontWeight:600,textAlign:"center",padding:"2px 4px",outline:"none",fontFamily:"inherit",minWidth:0,WebkitAppearance:"none",MozAppearance:"textfield"}}
+                          step={(!isPrismatic&&!useRadians)?0.1:0.001}
+                          value={dispVal.toFixed(!isPrismatic&&!useRadians?1:3)}
+                          onChange={e=>{
+                            const raw=parseFloat(e.target.value);
+                            if(isNaN(raw))return;
+                            const rad=(!isPrismatic&&!useRadians)?d2r(raw):raw;
+                            const clamped=Math.max(lower,Math.min(upper,rad));
+                            updateJoint(name,clamped);
+                          }}/>
+                        <span style={{fontSize:10,color:C.dim,minWidth:40,textAlign:"right"}}>{dispHi.toFixed(1)}{unit}</span>
+                      </div>
                     </div>
                   );
                 })}
