@@ -365,20 +365,20 @@ export default function RobotViewer(){
     const cam=new THREE.PerspectiveCamera(45,1,0.01,100);cameraRef.current=cam;updateCam();
     const ren=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true});ren.setPixelRatio(Math.min(devicePixelRatio,2));ren.shadowMap.enabled=true;ren.shadowMap.type=THREE.PCFSoftShadowMap;ren.toneMapping=THREE.ACESFilmicToneMapping;ren.toneMappingExposure=1.2;rendererRef.current=ren;
     scene.add(new THREE.AmbientLight(0x334466,0.6));const dl=new THREE.DirectionalLight(0xffffff,1.2);dl.position.set(3,5,4);dl.castShadow=true;dl.shadow.mapSize.set(2048,2048);dl.shadow.camera.near=0.1;dl.shadow.camera.far=20;dl.shadow.camera.left=-3;dl.shadow.camera.right=3;dl.shadow.camera.top=3;dl.shadow.camera.bottom=-3;scene.add(dl);scene.add(new THREE.DirectionalLight(0x22d3ee,0.3).translateX(-2).translateY(3).translateZ(-2));scene.add(new THREE.HemisphereLight(0x22d3ee,0x0a0e17,0.4));
-    const gnd=new THREE.Mesh(new THREE.PlaneGeometry(10,10),new THREE.MeshStandardMaterial({color:0x0d1117,roughness:0.9}));gnd.rotation.x=-Math.PI/2;gnd.receiveShadow=true;scene.add(gnd);
+    const gnd=new THREE.Mesh(new THREE.PlaneGeometry(10,10),new THREE.MeshStandardMaterial({color:0xe8ecf0,roughness:0.9}));gnd.rotation.x=-Math.PI/2;gnd.receiveShadow=true;scene.add(gnd);
     const resize=()=>{const p=cv.parentElement;if(!p)return;ren.setSize(p.clientWidth,p.clientHeight);cam.aspect=p.clientWidth/p.clientHeight;cam.updateProjectionMatrix();};resize();window.addEventListener("resize",resize);
     const anim=()=>{animRef.current=requestAnimationFrame(anim);ren.render(scene,cam);};anim();
     return()=>{window.removeEventListener("resize",resize);cancelAnimationFrame(animRef.current);ren.dispose();};
   },[]);
 
-  useEffect(()=>{const s=sceneRef.current;if(!s)return;s.children.filter(c=>c.userData.isHelper).forEach(c=>s.remove(c));if(grid){const gc=darkMode?[0x1a2332,0x131b2a]:[0xcccccc,0xdddddd];const totalSize=gridSize*10;const divisions=10;const g=new THREE.GridHelper(totalSize,divisions,gc[0],gc[1]);g.userData.isHelper=true;s.add(g);}if(axes){const a=new THREE.AxesHelper(0.5);a.userData.isHelper=true;s.add(a);}},[grid,axes,darkMode,gridSize]);
+  useEffect(()=>{const s=sceneRef.current;if(!s)return;s.children.filter(c=>c.userData.isHelper).forEach(c=>s.remove(c));if(grid){const gc=darkMode?[0x2a3a4a,0x1c2836]:[0xc0c8d0,0xd8dfe6];const totalSize=gridSize*10;const divisions=10;const g=new THREE.GridHelper(totalSize,divisions,gc[0],gc[1]);g.userData.isHelper=true;s.add(g);}if(axes){const a=new THREE.AxesHelper(0.5);a.userData.isHelper=true;s.add(a);}},[grid,axes,darkMode,gridSize]);
 
   // Update ground color on dark/light mode
   useEffect(()=>{
     const s=sceneRef.current;if(!s)return;
     s.traverse(c=>{
       if(c.isMesh&&c.geometry?.type==="PlaneGeometry"){
-        c.material.color.set(darkMode?0x0d1117:0xf0f0f0);
+        c.material.color.set(darkMode?0x131b28:0xe8ecf0);
         c.material.needsUpdate=true;
       }
     });
