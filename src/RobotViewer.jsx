@@ -286,8 +286,6 @@ export default function RobotViewer(){
   const upSignRef=useRef(1);
   useEffect(()=>{upAxisRef.current=upAxis;},[upAxis]);
   useEffect(()=>{upSignRef.current=upSign;},[upSign]);
-  useEffect(()=>{robotRef.current=robot;},[robot]);
-  useEffect(()=>{tcpModeRef.current=tcpMode;},[tcpMode]);
   const[showCoordPanel,setShowCoordPanel]=useState(false);
   const[modelOffset,setModelOffset]=useState({x:0,y:0,z:0});
   const[showJointAxes,setShowJointAxes]=useState(false);
@@ -314,6 +312,8 @@ export default function RobotViewer(){
 
   const worldGroupRef=useRef(null),offsetGroupRef=useRef(null),folderRef=useRef(null);
 
+  useEffect(()=>{robotRef.current=robot;},[robot]);
+  useEffect(()=>{tcpModeRef.current=tcpMode;},[tcpMode]);
   const updateCam=useCallback(()=>{if(!cameraRef.current)return;const{theta,phi,radius}=camAngle.current,t=lookTarget.current;cameraRef.current.position.set(t.x+radius*Math.sin(phi)*Math.cos(theta),t.y+radius*Math.cos(phi),t.z+radius*Math.sin(phi)*Math.sin(theta));cameraRef.current.lookAt(t);},[]);
 
   // Sidebar resize — native events + fullscreen overlay to prevent canvas from stealing mouse
