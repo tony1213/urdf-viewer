@@ -461,13 +461,15 @@ export default function RobotViewer(){
               pts.push(px*radius,py*radius,pz*radius);
             }
             curve.setAttribute("position",new THREE.BufferAttribute(new Float32Array(pts),3));
-            const arcLine=new THREE.Line(curve,new THREE.LineBasicMaterial({color:0x22d3ee,linewidth:2,depthTest:false}));
-            arcLine.renderOrder=998;
+            const arcLine=new THREE.Line(curve,new THREE.LineBasicMaterial({color:0x22d3ee,linewidth:2,depthTest:false,depthWrite:false,transparent:true}));
+            arcLine.renderOrder=999;
             arc.add(arcLine);
             // Zero reference line
             const zeroLine=new THREE.BufferGeometry();
             zeroLine.setAttribute("position",new THREE.BufferAttribute(new Float32Array([0,0,0,u.x*radius*1.3,u.y*radius*1.3,u.z*radius*1.3]),3));
-            arc.add(new THREE.Line(zeroLine,new THREE.LineBasicMaterial({color:0x64748b,linewidth:1,depthTest:false,transparent:true,opacity:0.5})));
+            const zeroLineMesh=new THREE.Line(zeroLine,new THREE.LineBasicMaterial({color:0x64748b,linewidth:1,depthTest:false,depthWrite:false,transparent:true,opacity:0.6}));
+            zeroLineMesh.renderOrder=999;
+            arc.add(zeroLineMesh);
             // Current angle line
             const ca=value;
             const cx=u.x*Math.cos(ca)+v.x*Math.sin(ca);
@@ -475,7 +477,9 @@ export default function RobotViewer(){
             const cz=u.z*Math.cos(ca)+v.z*Math.sin(ca);
             const curLine=new THREE.BufferGeometry();
             curLine.setAttribute("position",new THREE.BufferAttribute(new Float32Array([0,0,0,cx*radius*1.3,cy*radius*1.3,cz*radius*1.3]),3));
-            arc.add(new THREE.Line(curLine,new THREE.LineBasicMaterial({color:0x22d3ee,linewidth:1,depthTest:false})));
+            const curLineMesh=new THREE.Line(curLine,new THREE.LineBasicMaterial({color:0x22d3ee,linewidth:1,depthTest:false,depthWrite:false,transparent:true}));
+            curLineMesh.renderOrder=999;
+            arc.add(curLineMesh);
           }
         }
         // Update label text
