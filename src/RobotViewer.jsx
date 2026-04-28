@@ -320,6 +320,7 @@ export default function RobotViewer(){
   const[measureMode,setMeasureMode]=useState(false); // measure distance mode
   const measureRef=useRef({start:null,end:null,line:null,markers:[],labels:[]}); // measure objects in scene
   const measureModeRef=useRef(false);
+  const[selectedJoints,setSelectedJoints]=useState([]); // for joint-to-joint distance (max 2)
   const tcpMeshRef=useRef(null); // the TCP sphere mesh in scene
   const tcpDragging=useRef(false);
   const tcpPlaneRef=useRef(null); // drag plane
@@ -924,7 +925,7 @@ export default function RobotViewer(){
       if(hit){
         const ln=hit.object.userData.linkName;
         highlightLink(ln);
-        setHoverInfo({linkName:ln,x:e.clientX,y:e.clientY});
+        setHoverInfo({linkName:ln,x:e.clientX,y:e.clientY,point:hit.point.clone()});
       } else {
         highlightLink(null);
         setHoverInfo(null);
@@ -1139,6 +1140,25 @@ export default function RobotViewer(){
 
         {/* Info */}
         {robot&&(<div style={{position:"absolute",bottom:16,left:16,padding:"8px 14px",background:`${C.panel}ee`,borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.dim,zIndex:20,display:"flex",gap:16,alignItems:"center"}}><span><span style={{color:C.accent}}>●</span> {robot.name}</span><span>{linkNames.length} links</span><span>{jEntries.length} joints</span><span style={{color:C.accent}}>Up:{upSign>0?"+":"-"}{upAxis}</span></div>)}
+        {/* TCP real-time coordinates for serial arms */}
+        {robot&&isSerialArm&&(()=>{
+          const parentLinks=new Set(Object.values(robot.joints).map(j=>j.parent));
+          const eefLink=Object.keys(robot.links).find(l=>!parentLinks.has(l))||Object.keys(robot.links).slice(-1)[0];
+          const eefObj=linkObjRef.current[eefLink];
+          if(!eefObj)return null;
+          eefObj.updateWorldMatrix(true,false);
+          const pos=new THREE.Vector3();eefObj.getWorldPosition(pos);
+          const quat=new THREE.Quaternion();eefObj.getWorldQuaternion(quat);
+          const euler=new THREE.Euler().setFromQuaternion(quat,"ZYX");
+          const r2d=v=>+(v*180/Math.PI).toFixed(1);
+          return(
+            <div style={{position:"absolute",bottom:44,left:16,padding:"8px 12px",background:`${C.panel}ee`,borderRadius:8,border:`1px solid ${C.accent}44`,fontSize:10,color:C.text,zIndex:20,fontFamily:"monospace",lineHeight:1.6}}>
+              <div style={{fontSize:9,color:C.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2}}>TCP ({eefLink})</div>
+              <div><span style={{color:"#ff4444"}}>X</span>:{pos.x.toFixed(4)} <span style={{color:"#44ff44"}}>Y</span>:{pos.y.toFixed(4)} <span style={{color:"#4488ff"}}>Z</span>:{pos.z.toFixed(4)} m</div>
+              <div><span style={{color:C.dim}}>R</span>:{r2d(euler.x)}° <span style={{color:C.dim}}>P</span>:{r2d(euler.y)}° <span style={{color:C.dim}}>Y</span>:{r2d(euler.z)}°</div>
+            </div>
+          );
+        })()}
         <div style={{position:"absolute",bottom:4,left:"50%",transform:"translateX(-50%)",fontSize:10,color:C.dim,opacity:0.5,zIndex:10,pointerEvents:"none",whiteSpace:"nowrap"}}>© 2026 Dong.Wu All Rights Reserved</div>
 
         {/* Hover tooltip */}
@@ -1200,6 +1220,17 @@ export default function RobotViewer(){
                   {childJoints.length>4&&<div style={{color:C.dim,fontSize:10}}>+{childJoints.length-4} more</div>}
                 </div>
               )}
+              {/* Surface point coordinates */}
+              {hoverInfo.point&&(
+                <div style={{marginTop:6,borderTop:`1px solid ${C.border}`,paddingTop:6}}>
+                  <div style={{color:C.dim,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Surface Point</div>
+                  <div style={{fontSize:10,fontFamily:"monospace",color:C.text}}>
+                    <span style={{color:"#ff4444"}}>X</span>:{hoverInfo.point.x.toFixed(4)}
+                    {" "}<span style={{color:"#44ff44"}}>Y</span>:{hoverInfo.point.y.toFixed(4)}
+                    {" "}<span style={{color:"#4488ff"}}>Z</span>:{hoverInfo.point.z.toFixed(4)}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -1255,6 +1286,37 @@ export default function RobotViewer(){
                     <button onClick={()=>setUseRadians(true)} style={{padding:"3px 8px",borderRadius:4,border:`1px solid ${useRadians?C.accent:C.border}`,background:useRadians?`${C.accent}22`:C.bg,color:useRadians?C.accent:C.dim,fontSize:10,fontWeight:600,cursor:"pointer"}}>rad</button>
                   </div>
                 </div>
+                {/* Joint-to-joint distance */}
+                {selectedJoints.length>0&&(
+                  <div style={{padding:"6px 20px",borderBottom:`1px solid ${C.border}`,background:`${C.accent}08`}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:10,color:C.accent,fontWeight:600}}>{lang==="zh"?"关节间距":"Joint Distance"}</span>
+                      <button onClick={()=>setSelectedJoints([])} style={{background:"none",border:"none",color:C.dim,fontSize:10,cursor:"pointer",padding:"2px 4px"}}>✕</button>
+                    </div>
+                    {selectedJoints.map((jn,i)=>{
+                      const o=jointObjRef.current[jn];
+                      const pos=o?new THREE.Vector3():null;
+                      if(o){o.updateWorldMatrix(true,false);o.getWorldPosition(pos);}
+                      return <div key={jn} style={{fontSize:10,color:C.text}}><span style={{color:i===0?"#ff4444":"#4488ff"}}>●</span> {jn} {pos&&<span style={{color:C.dim}}>({pos.x.toFixed(3)}, {pos.y.toFixed(3)}, {pos.z.toFixed(3)})</span>}</div>;
+                    })}
+                    {selectedJoints.length===2&&(()=>{
+                      const o1=jointObjRef.current[selectedJoints[0]],o2=jointObjRef.current[selectedJoints[1]];
+                      if(!o1||!o2)return null;
+                      const p1=new THREE.Vector3(),p2=new THREE.Vector3();
+                      o1.updateWorldMatrix(true,false);o1.getWorldPosition(p1);
+                      o2.updateWorldMatrix(true,false);o2.getWorldPosition(p2);
+                      const d=p1.distanceTo(p2);
+                      const dx=p2.x-p1.x,dy=p2.y-p1.y,dz=p2.z-p1.z;
+                      return <div style={{marginTop:4,fontSize:11,fontWeight:700,color:C.accent}}>
+                        {d.toFixed(4)} m
+                        <span style={{fontWeight:400,fontSize:9,color:C.dim,marginLeft:6}}>
+                          ΔX:{dx.toFixed(3)} ΔY:{dy.toFixed(3)} ΔZ:{dz.toFixed(3)}
+                        </span>
+                      </div>;
+                    })()}
+                    <div style={{fontSize:9,color:C.dim,marginTop:2}}>{lang==="zh"?"点击关节名选择(最多2个)":"Click joint names to select (max 2)"}</div>
+                  </div>
+                )}
                 {jEntries.length===0&&<div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>{T.noJoints}</div>}
                 {jEntries.map(([name,value])=>{
                   const o=jointObjRef.current[name];if(!o)return null;
@@ -1279,7 +1341,15 @@ export default function RobotViewer(){
                     <div key={name} className="ji" style={{padding:"10px 20px",borderBottom:`1px solid ${C.border}`}}>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
                         <span style={{fontSize:9,color:C.dim,textTransform:"uppercase",letterSpacing:"0.08em",flexShrink:0}}>{jointType}</span>
-                        <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,color:C.text}} title={name}>{name}</span>
+                        <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,
+                          color:selectedJoints.includes(name)?C.accent:C.text,
+                          cursor:"pointer",textDecoration:selectedJoints.includes(name)?"underline":"none"}}
+                          title={`${name} — ${lang==="zh"?"点击选择测距":"click to measure distance"}`}
+                          onClick={e=>{e.stopPropagation();setSelectedJoints(prev=>{
+                            if(prev.includes(name))return prev.filter(n=>n!==name);
+                            if(prev.length>=2)return[prev[1],name];
+                            return[...prev,name];
+                          });}}>{name}</span>
                       </div>
                       <input type="range" style={{width:"100%",appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer",marginBottom:6}}
                         min={lower} max={upper} step={0.001} value={value}
