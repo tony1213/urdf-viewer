@@ -556,7 +556,7 @@ export default function RobotViewer(){
     // Distance label at midpoint
     const mid=new THREE.Vector3().addVectors(startPt,endPt).multiplyScalar(0.5);
     mid.y+=0.04;
-    const distLabel=createMeasureLabel(`${(dist*1000).toFixed(1)}mm`,mid,"#ff6600",0.06);
+    const distLabel=createMeasureLabel(`${(dist*1000).toFixed(2)}mm`,mid,"#ff6600",0.06);
     scene.add(distLabel);m.labels.push(distLabel);
     // XYZ component lines and labels — only on final (non-preview)
     if(!preview){
@@ -578,9 +578,9 @@ export default function RobotViewer(){
       const xTube=makeAxisTube(startPt,xEnd,0xff4444);if(xTube){scene.add(xTube);m.labels.push(xTube);}
       const yTube=makeAxisTube(xEnd,yEnd,0x44ff44);if(yTube){scene.add(yTube);m.labels.push(yTube);}
       const zTube=makeAxisTube(yEnd,endPt,0x4488ff);if(zTube){scene.add(zTube);m.labels.push(zTube);}
-      if(Math.abs(dx)>0.002){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y,startPt.z);const xl=createMeasureLabel(`${(dx*1000).toFixed(1)}`,xMid,"#ff4444",0.05,true);scene.add(xl);m.labels.push(xl);}
-      if(Math.abs(dy)>0.002){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`${(dy*1000).toFixed(1)}`,yMid,"#44ff44",0.05,true);scene.add(yl);m.labels.push(yl);}
-      if(Math.abs(dz)>0.002){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`${(dz*1000).toFixed(1)}`,zMid,"#4488ff",0.05,true);scene.add(zl);m.labels.push(zl);}
+      if(Math.abs(dx)>0.002){const xMid=new THREE.Vector3((startPt.x+endPt.x)/2,startPt.y,startPt.z);const xl=createMeasureLabel(`${(dx*1000).toFixed(2)}`,xMid,"#ff4444",0.05,true);scene.add(xl);m.labels.push(xl);}
+      if(Math.abs(dy)>0.002){const yMid=new THREE.Vector3(endPt.x,(startPt.y+endPt.y)/2,startPt.z);const yl=createMeasureLabel(`${(dy*1000).toFixed(2)}`,yMid,"#44ff44",0.05,true);scene.add(yl);m.labels.push(yl);}
+      if(Math.abs(dz)>0.002){const zMid=new THREE.Vector3(endPt.x,endPt.y,(startPt.z+endPt.z)/2);const zl=createMeasureLabel(`${(dz*1000).toFixed(2)}`,zMid,"#4488ff",0.05,true);scene.add(zl);m.labels.push(zl);}
     }
   },[]);
   // Snap hit point to nearest mesh vertex (world space)
