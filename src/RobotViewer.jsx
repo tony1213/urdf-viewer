@@ -296,7 +296,7 @@ export default function RobotViewer(){
   const[linkOpacities,setLinkOpacities]=useState({});
   const[sidebarTab,setSidebarTab]=useState("joints"); // "joints"|"files"|"tree"
   const[sidebarWidth,setSidebarWidth]=useState(320);
-  const[darkMode,setDarkMode]=useState(true);
+  const[darkMode,setDarkMode]=useState(false);
   const[lang,setLang]=useState("zh"); // "zh"|"en"
   const[gridSize,setGridSize]=useState(1.0); // meters per grid cell, total size = gridSize * 10
   const[useRadians,setUseRadians]=useState(false); // false=degrees, true=radians
@@ -881,19 +881,10 @@ export default function RobotViewer(){
           const ln=hoverInfo.linkName;
           const linkData=robot.links[ln];
           const inertial=linkData?.inertial;
-          // Find connected joints
           const parentJoint=Object.values(robot.joints).find(j=>j.child===ln);
           const childJoints=Object.values(robot.joints).filter(j=>j.parent===ln);
-          const cv=canvasRef.current;
-          if(!cv)return null;
-          const rect=cv.getBoundingClientRect();
-          const tx=hoverInfo.x-rect.left;
-          const ty=hoverInfo.y-rect.top;
-          const tipW=240,tipH=200;
-          const left=tx+tipW+16>rect.width?tx-tipW-8:tx+16;
-          const top=ty+tipH>rect.height?ty-tipH:ty;
           return(
-            <div style={{position:"absolute",left,top,zIndex:30,background:darkMode?"rgba(17,24,39,0.97)":"rgba(255,255,255,0.97)",border:`1px solid ${C.accent}55`,borderRadius:10,padding:"12px 14px",minWidth:220,maxWidth:280,boxShadow:"0 8px 32px rgba(0,0,0,0.4)",pointerEvents:"none",fontSize:11,lineHeight:1.6}}>
+            <div style={{position:"absolute",bottom:50,left:16,zIndex:30,background:darkMode?"rgba(17,24,39,0.95)":"rgba(255,255,255,0.95)",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",minWidth:240,maxWidth:300,boxShadow:darkMode?"0 8px 32px rgba(0,0,0,0.5)":"0 4px 20px rgba(0,0,0,0.12)",pointerEvents:"none",fontSize:11,lineHeight:1.6}}>
               {/* Link name header */}
               <div style={{fontWeight:700,fontSize:13,color:C.accent,marginBottom:8,borderBottom:`1px solid ${C.border}`,paddingBottom:6,display:"flex",alignItems:"center",gap:6}}>
                 <span style={{color:"#34d399",fontSize:10}}>■</span>{ln}
@@ -929,17 +920,19 @@ export default function RobotViewer(){
                 <div style={{marginBottom:4}}>
                   <div style={{color:C.dim,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Parent Joint</div>
                   <div style={{color:C.text}}><span style={{color:"#ffaa00"}}>◎</span> {parentJoint.name}</div>
-                  <div style={{color:C.dim,fontSize:10}}>{parentJoint.type} · axis [{parentJoint.axis.join(",")}]</div>
+                  <div style={{color:C.dim,fontSize:10}}>{parentJoint.type} · axis [{parentJoint.axis.join(",")}]
+                    {parentJoint.type!=="fixed"&&` · [${parentJoint.lower?.toFixed(2)}, ${parentJoint.upper?.toFixed(2)}] rad`}
+                  </div>
                 </div>
               )}
               {/* Child joints */}
               {childJoints.length>0&&(
                 <div>
                   <div style={{color:C.dim,fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Child Joints ({childJoints.length})</div>
-                  {childJoints.slice(0,3).map(j=>(
+                  {childJoints.slice(0,4).map(j=>(
                     <div key={j.name} style={{color:C.text,fontSize:10}}><span style={{color:"#ffaa00"}}>◎</span> {j.name} <span style={{color:C.dim}}>({j.type})</span></div>
                   ))}
-                  {childJoints.length>3&&<div style={{color:C.dim,fontSize:10}}>+{childJoints.length-3} more</div>}
+                  {childJoints.length>4&&<div style={{color:C.dim,fontSize:10}}>+{childJoints.length-4} more</div>}
                 </div>
               )}
             </div>
