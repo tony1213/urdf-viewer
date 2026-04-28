@@ -265,7 +265,9 @@ export default function RobotViewer(){
   const raycasterRef=useRef(new THREE.Raycaster());
   const hoveredLinkRef=useRef(null); // currently hovered link name
   const originalMatsRef=useRef(new Map()); // mesh -> original material
-
+  const linkDragRef=useRef(null); // {jointName, jointType, lower, upper} when dragging a link
+  const robotRef=useRef(null); // mirrors robot state for use in native event handlers
+  const tcpModeRef=useRef(false); // mirrors tcpMode for use in native event handlers
   const[hoverInfo,setHoverInfo]=useState(null); // {linkName, x, y}
 
   const[robot,setRobot]=useState(null);
@@ -284,6 +286,8 @@ export default function RobotViewer(){
   const upSignRef=useRef(1);
   useEffect(()=>{upAxisRef.current=upAxis;},[upAxis]);
   useEffect(()=>{upSignRef.current=upSign;},[upSign]);
+  useEffect(()=>{robotRef.current=robot;},[robot]);
+  useEffect(()=>{tcpModeRef.current=tcpMode;},[tcpMode]);
   const[showCoordPanel,setShowCoordPanel]=useState(false);
   const[modelOffset,setModelOffset]=useState({x:0,y:0,z:0});
   const[showJointAxes,setShowJointAxes]=useState(false);
@@ -612,7 +616,27 @@ export default function RobotViewer(){
         e.preventDefault();
         midDown.current=true; lastM.current={x:e.clientX,y:e.clientY}; return;
       }
-      if(e.button===0&&e.target.tagName!=="INPUT"){mouseDown.current=true;lastM.current={x:e.clientX,y:e.clientY};}
+      if(e.button===0&&e.target.tagName!=="INPUT"){
+        // If hovering a link with controllable parent joint, start link drag
+        const ln=hoveredLinkRef.current;
+        if(ln&&robotRef.current&&!tcpModeRef.current){
+          const parentJoint=Object.values(robotRef.current.joints).find(j=>j.child===ln);
+          if(parentJoint&&parentJoint.type!=="fixed"){
+            const jObj=jointObjRef.current[parentJoint.name];
+            if(jObj){
+              linkDragRef.current={
+                jointName:parentJoint.name,
+                jointType:jObj.userData.jointType,
+                lower:jObj.userData.lower,
+                upper:jObj.userData.upper,
+              };
+              lastM.current={x:e.clientX,y:e.clientY};
+              return; // Don't set mouseDown → camera won't rotate
+            }
+          }
+        }
+        mouseDown.current=true;lastM.current={x:e.clientX,y:e.clientY};
+      }
     };
     cv.addEventListener("mousedown",onDown);
     return()=>cv.removeEventListener("mousedown",onDown);
@@ -632,13 +656,31 @@ export default function RobotViewer(){
       lookTarget.current.addScaledVector(up,dy*panSpeed);
       updateCam();return;
     }
+    // Link drag: rotate parent joint by horizontal mouse movement
+    if(linkDragRef.current){
+      const{jointName,jointType,lower,upper}=linkDragRef.current;
+      const speed=jointType==="prismatic"?0.001:0.01;
+      const jObj=jointObjRef.current[jointName];
+      if(jObj){
+        const cur=jObj.userData.value;
+        const next=Math.max(lower,Math.min(upper,cur+dx*speed));
+        updateJoint(jointName,next);
+        const inp=jointInputRefsMap.current[jointName];
+        if(inp&&document.activeElement!==inp){
+          const isPrismatic=jointType==="prismatic";
+          const dispV=(!isPrismatic&&!useRadiansRef.current)?+(next*(180/Math.PI)).toFixed(2):+next.toFixed(4);
+          inp.value=String(dispV);
+        }
+      }
+      return;
+    }
     if(mouseDown.current){
       camAngle.current.theta-=dx*0.005;
       camAngle.current.phi=Math.max(0.1,Math.min(Math.PI-0.1,camAngle.current.phi+dy*0.005));
       updateCam();
     }
     // Raycasting for hover — only when not dragging and not in TCP mode
-    if(!mouseDown.current&&!midDown.current&&!tcpMode&&sceneRef.current&&cameraRef.current&&robotGroupRef.current){
+    if(!mouseDown.current&&!midDown.current&&!linkDragRef.current&&!tcpMode&&sceneRef.current&&cameraRef.current&&robotGroupRef.current){
       const cv=canvasRef.current;if(!cv)return;
       const rect=cv.getBoundingClientRect();
       const mouse=new THREE.Vector2(
@@ -658,8 +700,11 @@ export default function RobotViewer(){
         setHoverInfo(null);
       }
     }
-  },[updateCam,highlightLink]);
-  const onMU=useCallback(e=>{if(e.button===1)midDown.current=false;else mouseDown.current=false;},[]);
+  },[updateCam,highlightLink,updateJoint,tcpMode]);
+  const onMU=useCallback(e=>{
+    if(e.button===1)midDown.current=false;
+    else{mouseDown.current=false;linkDragRef.current=null;}
+  },[]);
   const onWh=useCallback(e=>{camAngle.current.radius=Math.max(0.2,Math.min(20,camAngle.current.radius+e.deltaY*0.003));updateCam();},[updateCam]);
 
   const processItems=useCallback(async dt=>{
@@ -735,7 +780,11 @@ export default function RobotViewer(){
 
       {/* Canvas */}
       <div style={{flex:1,position:"relative",minWidth:0}}>
-        <canvas ref={canvasRef} style={{width:"100%",height:"100%",cursor:tcpMode?"crosshair":hoverInfo?"crosshair":"grab",background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
+        <canvas ref={canvasRef} style={{width:"100%",height:"100%",
+          cursor:tcpMode?"crosshair":
+            linkDragRef.current?"ew-resize":
+            (hoverInfo&&robot&&Object.values(robot.joints).find(j=>j.child===hoverInfo.linkName&&j.type!=="fixed"))?"ew-resize":"grab",
+          background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;linkDragRef.current=null;highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
