@@ -367,7 +367,7 @@ export default function RobotViewer(){
   useEffect(()=>{
     const cv=canvasRef.current;if(!cv)return;
     const scene=new THREE.Scene();sceneRef.current=scene;
-    const cam=new THREE.PerspectiveCamera(45,1,0.01,100);cameraRef.current=cam;updateCam();
+    const cam=new THREE.PerspectiveCamera(45,1,0.001,100);cameraRef.current=cam;updateCam();
     const ren=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true});ren.setPixelRatio(Math.min(devicePixelRatio,2));ren.shadowMap.enabled=true;ren.shadowMap.type=THREE.PCFSoftShadowMap;ren.toneMapping=THREE.ACESFilmicToneMapping;ren.toneMappingExposure=1.2;rendererRef.current=ren;
     scene.add(new THREE.AmbientLight(0x334466,0.6));const dl=new THREE.DirectionalLight(0xffffff,1.2);dl.position.set(3,5,4);dl.castShadow=true;dl.shadow.mapSize.set(2048,2048);dl.shadow.camera.near=0.1;dl.shadow.camera.far=20;dl.shadow.camera.left=-3;dl.shadow.camera.right=3;dl.shadow.camera.top=3;dl.shadow.camera.bottom=-3;scene.add(dl);scene.add(new THREE.DirectionalLight(0x22d3ee,0.3).translateX(-2).translateY(3).translateZ(-2));scene.add(new THREE.HemisphereLight(0x22d3ee,0x0a0e17,0.4));
     const gnd=new THREE.Mesh(new THREE.PlaneGeometry(10,10),new THREE.MeshStandardMaterial({color:0xe8ecf0,roughness:0.9}));gnd.rotation.x=-Math.PI/2;gnd.receiveShadow=true;scene.add(gnd);
@@ -992,7 +992,7 @@ export default function RobotViewer(){
     if(e.button===1)midDown.current=false;
     else{mouseDown.current=false;if(linkDragRef.current){linkDragRef.current=null;clearDragAngle();}}
   },[clearDragAngle]);
-  const onWh=useCallback(e=>{camAngle.current.radius=Math.max(0.05,Math.min(20,camAngle.current.radius*(1+e.deltaY*0.001)));updateCam();},[updateCam]);
+  const onWh=useCallback(e=>{camAngle.current.radius=Math.max(0.005,Math.min(20,camAngle.current.radius*(1+e.deltaY*0.001)));updateCam();},[updateCam]);
 
   const processItems=useCallback(async dt=>{
     const fileMap=new Map(),arr=[];let urdf=null,urdfName="";const items=dt.items;
