@@ -10,16 +10,84 @@ function loadSTL(buf){try{const h=new TextDecoder().decode(buf.slice(0,80));if(h
 function parseOBJ(text){const pos=[],nor=[],fv=[],fn=[];for(const line of text.split("\n")){const p=line.trim().split(/\s+/);if(p[0]==="v")pos.push([+p[1],+p[2],+p[3]]);else if(p[0]==="vn")nor.push([+p[1],+p[2],+p[3]]);else if(p[0]==="f"){const face=p.slice(1).map(s=>{const ids=s.split("/");return{v:+ids[0]-1,n:ids[2]?+ids[2]-1:-1};});for(let i=1;i<face.length-1;i++)for(const idx of[face[0],face[i],face[i+1]]){fv.push(...(pos[idx.v]||[0,0,0]));fn.push(...(idx.n>=0&&nor[idx.n]?nor[idx.n]:[0,0,1]));}}}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(new Float32Array(fv),3));g.setAttribute("normal",new THREE.BufferAttribute(new Float32Array(fn),3));return g;}
 
 // ─── DAE ─────────────────────────────────────────────────────
-function parseDAE(text){const doc=new DOMParser().parseFromString(text,"text/xml"),group=new THREE.Group(),fas={};for(const el of doc.querySelectorAll("float_array")){const id=el.getAttribute("id");if(id)fas[id]=el.textContent.trim().split(/\s+/).map(Number);}const getSrc=sid=>{const s=doc.getElementById(sid.replace("#",""));if(!s)return null;const f=s.querySelector("float_array");if(!f)return null;return fas[f.getAttribute("id")]||f.textContent.trim().split(/\s+/).map(Number);};
-  // Detect up_axis for vertex coordinate transform
+function parseDAE(text){
+  const doc=new DOMParser().parseFromString(text,"text/xml"),group=new THREE.Group(),fas={};
+  for(const el of doc.querySelectorAll("float_array")){const id=el.getAttribute("id");if(id)fas[id]=el.textContent.trim().split(/\s+/).map(Number);}
+  const getSrc=sid=>{const s=doc.getElementById(sid.replace("#",""));if(!s)return null;const f=s.querySelector("float_array");if(!f)return null;return fas[f.getAttribute("id")]||f.textContent.trim().split(/\s+/).map(Number);};
   const upEl=doc.querySelector("up_axis");const isYup=upEl&&upEl.textContent.trim()==="Y_UP";
-  for(const me of doc.querySelectorAll("geometry mesh")){const te=me.querySelector("triangles")||me.querySelector("polylist");if(!te)continue;let pd=null,nd=null;const offs={};let mo=0;for(const inp of te.querySelectorAll("input")){const sem=inp.getAttribute("semantic"),src=inp.getAttribute("source"),o=+(inp.getAttribute("offset")||"0");offs[sem]={source:src,offset:o};mo=Math.max(mo,o);if(sem==="VERTEX"){const ve=doc.querySelector(`[id="${src.replace("#","")}"]`);if(ve){const pi=ve.querySelector('input[semantic="POSITION"]');if(pi)pd=getSrc(pi.getAttribute("source"));}}else if(sem==="NORMAL")nd=getSrc(src);}if(!pd)continue;const pe=te.querySelector("p");if(!pe)continue;const ids=pe.textContent.trim().split(/\s+/).map(Number),st=mo+1,v=[],n=[];
-  for(let i=0;i<ids.length;i+=st){const vi=ids[i+(offs.VERTEX?.offset||0)];
-    let vx=pd[vi*3],vy=pd[vi*3+1],vz=pd[vi*3+2];
-    if(isYup){const ty=vy;vy=-vz;vz=ty;} // Y_UP -> Z_UP: swap Y and Z, negate new Y
-    v.push(vx,vy,vz);
-    if(nd&&offs.NORMAL){const ni=ids[i+offs.NORMAL.offset];let nx=nd[ni*3],ny=nd[ni*3+1],nz=nd[ni*3+2];if(isYup){const tny=ny;ny=-nz;nz=tny;}n.push(nx,ny,nz);}}
-  const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(new Float32Array(v),3));if(n.length)g.setAttribute("normal",new THREE.BufferAttribute(new Float32Array(n),3));else g.computeVertexNormals();group.add(new THREE.Mesh(g,new THREE.MeshPhysicalMaterial({color:0x999aab,metalness:0.3,roughness:0.5})));}return group;}
+
+  // Parse node transforms from visual_scene: geomId -> THREE.Matrix4
+  const nodeTransforms={};
+  for(const node of doc.querySelectorAll("visual_scene node")){
+    const matEl=node.querySelector(":scope > matrix");
+    let mat4=null;
+    if(matEl){
+      const vals=matEl.textContent.trim().split(/\s+/).map(Number);
+      if(vals.length===16){
+        mat4=new THREE.Matrix4();
+        // Collada matrix is row-major, THREE.Matrix4 is column-major
+        mat4.set(vals[0],vals[1],vals[2],vals[3],vals[4],vals[5],vals[6],vals[7],vals[8],vals[9],vals[10],vals[11],vals[12],vals[13],vals[14],vals[15]);
+        mat4.transpose(); // to column-major
+      }
+    }
+    // Map geometry id to transform
+    const geomInst=node.querySelector("instance_geometry");
+    if(geomInst&&mat4){
+      const gid=geomInst.getAttribute("url").replace("#","");
+      nodeTransforms[gid]=mat4;
+    }
+  }
+
+  const makeMesh=(v,n,mat4,isYup)=>{
+    // Apply node transform to vertices
+    const vt=new Float32Array(v.length);
+    const vec=new THREE.Vector3();
+    for(let i=0;i<v.length;i+=3){
+      vec.set(v[i],v[i+1],v[i+2]);
+      if(mat4)vec.applyMatrix4(mat4);
+      if(isYup){const ty=vec.y;vec.y=-vec.z;vec.z=ty;}
+      vt[i]=vec.x;vt[i+1]=vec.y;vt[i+2]=vec.z;
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute("position",new THREE.BufferAttribute(vt,3));
+    if(n.length){
+      const nt=new Float32Array(n.length);
+      const nv=new THREE.Vector3();
+      const nm3=mat4?new THREE.Matrix3().getNormalMatrix(mat4):null;
+      for(let i=0;i<n.length;i+=3){
+        nv.set(n[i],n[i+1],n[i+2]);
+        if(nm3)nv.applyMatrix3(nm3).normalize();
+        if(isYup){const ty=nv.y;nv.y=-nv.z;nv.z=ty;}
+        nt[i]=nv.x;nt[i+1]=nv.y;nt[i+2]=nv.z;
+      }
+      g.setAttribute("normal",new THREE.BufferAttribute(nt,3));
+    } else g.computeVertexNormals();
+    return new THREE.Mesh(g,new THREE.MeshPhysicalMaterial({color:0x999aab,metalness:0.3,roughness:0.5}));
+  };
+
+  for(const me of doc.querySelectorAll("geometry mesh")){
+    const gid=me.closest("geometry")?.getAttribute("id")||"";
+    const mat4=nodeTransforms[gid]||null;
+    const te=me.querySelector("triangles")||me.querySelector("polylist");if(!te)continue;
+    let pd=null,nd=null;const offs={};let mo=0;
+    for(const inp of te.querySelectorAll("input")){
+      const sem=inp.getAttribute("semantic"),src=inp.getAttribute("source"),o=+(inp.getAttribute("offset")||"0");
+      offs[sem]={source:src,offset:o};mo=Math.max(mo,o);
+      if(sem==="VERTEX"){const ve=doc.querySelector(`[id="${src.replace("#","")}"]`);if(ve){const pi=ve.querySelector('input[semantic="POSITION"]');if(pi)pd=getSrc(pi.getAttribute("source"));}}
+      else if(sem==="NORMAL")nd=getSrc(src);
+    }
+    if(!pd)continue;const pe=te.querySelector("p");if(!pe)continue;
+    const ids=pe.textContent.trim().split(/\s+/).map(Number),st=mo+1,v=[],n=[];
+    for(let i=0;i<ids.length;i+=st){
+      const vi=ids[i+(offs.VERTEX?.offset||0)];
+      v.push(pd[vi*3],pd[vi*3+1],pd[vi*3+2]);
+      if(nd&&offs.NORMAL){const ni=ids[i+offs.NORMAL.offset];n.push(nd[ni*3],nd[ni*3+1],nd[ni*3+2]);}
+    }
+    const mesh=makeMesh(v,n,mat4,isYup);
+    group.add(mesh);
+  }
+  return group;
+}
 
 // ─── URDF Parser ─────────────────────────────────────────────
 function parseURDF(xml){
@@ -496,7 +564,7 @@ export default function RobotViewer(){
     coordSys:"坐标系 (Up Axis)",heightOffset:"模型高度偏移",autoGround:"⬇ 自动落地",viewPresets:"视角预设",
     front:"前",back:"后",left:"左",right:"右",top:"上",persp:"透视",
     urdfTree:"🔗 URDF 树",folderTree:"📁 文件夹",noFolderData:"无文件夹数据",
-    loadedFiles:"已加载文件",gridSizeLabel:"网格大小",
+    loadedFiles:"已加载文件",gridSizeLabel:"网格大小",urdfTab:"URDF",
   }:{
     jointCtrl:"Joints",jointOpacity:"Opacity",folder:"Files",noJoints:"No controllable joints",
     showAll:"Show All",halfTrans:"Semi-Trans",hideAll:"Hide All",resetJoints:"↺ Reset Joints",unload:"✕ Unload",
@@ -509,7 +577,7 @@ export default function RobotViewer(){
     coordSys:"Coord System (Up Axis)",heightOffset:"Model Height Offset",autoGround:"⬇ Auto Ground",viewPresets:"View Presets",
     front:"Front",back:"Back",left:"Left",right:"Right",top:"Top",persp:"Persp",
     urdfTree:"🔗 URDF Tree",folderTree:"📁 Folder",noFolderData:"No folder data",
-    loadedFiles:"Loaded Files",gridSizeLabel:"Grid Size",
+    loadedFiles:"Loaded Files",gridSizeLabel:"Grid Size",urdfTab:"URDF",
   };
 
   const TBtn=({active,onClick,children,title,color})=>(
@@ -723,6 +791,7 @@ export default function RobotViewer(){
           <div style={{display:"flex",borderBottom:`1px solid ${C.border}`}}>
             <TabBtn id="joints" label={T.jointCtrl}/>
             <TabBtn id="links" label={T.jointOpacity}/>
+            <TabBtn id="urdf" label={T.urdfTab}/>
             <TabBtn id="tree" label={T.folder}/>
           </div>
 
@@ -777,10 +846,20 @@ export default function RobotViewer(){
               </div>
             )}
 
+            {/* ── URDF Tree tab ── */}
+            {sidebarTab==="urdf"&&(
+              <div style={{padding:"8px 0"}}>
+                {urdfTree?<div style={{padding:"0 4px"}}><URDFLinkNode node={urdfTree} robot={robot} depth={0}/></div>
+                  :<div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>{T.noFolderData}</div>}
+              </div>
+            )}
+
             {/* ── Browser tab ── */}
             {sidebarTab==="tree"&&(
               <div style={{padding:"8px 0"}}>
-                <TreeBrowser files={files} urdfTree={urdfTree} folderTree={folderTree} robot={robot} T={T} C={C}/>
+                {folderTree
+                  ?<div style={{padding:"0 8px"}}><FolderNode node={folderTree} name="root" depth={0} C={C}/></div>
+                  :<div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>{T.noFolderData}</div>}
               </div>
             )}
           </div>
