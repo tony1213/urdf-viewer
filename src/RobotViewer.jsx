@@ -889,6 +889,7 @@ export default function RobotViewer(){
 
         {/* Info */}
         {robot&&(<div style={{position:"absolute",bottom:16,left:16,padding:"8px 14px",background:`${C.panel}ee`,borderRadius:8,border:`1px solid ${C.border}`,fontSize:11,color:C.dim,zIndex:20,display:"flex",gap:16,alignItems:"center"}}><span><span style={{color:C.accent}}>●</span> {robot.name}</span><span>{linkNames.length} links</span><span>{jEntries.length} joints</span><span style={{color:C.accent}}>Up:{upSign>0?"+":"-"}{upAxis}</span></div>)}
+        <div style={{position:"absolute",bottom:4,left:"50%",transform:"translateX(-50%)",fontSize:10,color:C.dim,opacity:0.5,zIndex:10,pointerEvents:"none",whiteSpace:"nowrap"}}>© 2026 Dong.Wu All Rights Reserved</div>
 
         {/* Hover tooltip */}
         {hoverInfo&&robot&&(()=>{
