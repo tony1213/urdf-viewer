@@ -298,10 +298,13 @@ export default function RobotViewer(){
   const[lang,setLang]=useState("zh"); // "zh"|"en"
   const[gridSize,setGridSize]=useState(1.0); // meters per grid cell, total size = gridSize * 10
   const[useRadians,setUseRadians]=useState(false); // false=degrees, true=radians
+  const useRadiansRef=useRef(false);
+  useEffect(()=>{useRadiansRef.current=useRadians;},[useRadians]);
   const[tcpMode,setTcpMode]=useState(false); // TCP drag IK mode
   const tcpMeshRef=useRef(null); // the TCP sphere mesh in scene
   const tcpDragging=useRef(false);
   const tcpPlaneRef=useRef(null); // drag plane
+  const jointInputRefsMap=useRef({}); // name -> input DOM element, for sync
   const resizingRef=useRef(false);
   const handleRef=useRef(null);
 
@@ -475,9 +478,19 @@ export default function RobotViewer(){
         }
       }
     }
-    // Sync React state
+    // Sync React state and input boxes
     const newVals={};
-    for(const{name,obj}of chain)newVals[name]=obj.userData.value;
+    for(const{name,obj}of chain){
+      newVals[name]=obj.userData.value;
+      // Directly update input box DOM if not focused
+      const inp=jointInputRefsMap.current[name];
+      if(inp&&document.activeElement!==inp){
+        const v=obj.userData.value;
+        const isPrismatic=obj.userData.jointType==="prismatic";
+        const dispV=(!isPrismatic&&!useRadiansRef.current)?+(v*(180/Math.PI)).toFixed(2):+v.toFixed(4);
+        inp.value=String(dispV);
+      }
+    }
     setJointVals(prev=>({...prev,...newVals}));
   },[robot]);
 
@@ -925,7 +938,6 @@ export default function RobotViewer(){
           <div style={{flex:1,overflowY:"auto"}}>
             {/* ── Joints tab ── */}
             {sidebarTab==="joints"&&(()=>{
-              const inputRefs={};
               return(
               <div style={{padding:"8px 0"}}>
                 {/* Unit toggle header */}
@@ -964,7 +976,7 @@ export default function RobotViewer(){
                         onChange={e=>{
                           updateJoint(name,+e.target.value);
                           // Sync input box display value directly via DOM
-                          const inp=inputRefs[name];
+                          const inp=jointInputRefsMap.current[name];
                           if(inp&&document.activeElement!==inp){
                             const newDisp=(!isPrismatic&&!useRadians)?r2d(+e.target.value):+(+e.target.value).toFixed(4);
                             inp.value=String(newDisp);
@@ -974,7 +986,7 @@ export default function RobotViewer(){
                         <span style={{fontSize:10,color:C.dim,minWidth:38,flexShrink:0}}>{dispLo}{unit}</span>
                         <input type="number"
                           key={`${name}-${useRadians}`}
-                          ref={el=>{if(el)inputRefs[name]=el;}}
+                          ref={el=>{if(el)jointInputRefsMap.current[name]=el;}}
                           defaultValue={dispVal}
                           style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,color:C.accent,fontSize:11,fontWeight:600,textAlign:"center",padding:"3px 4px",outline:"none",fontFamily:"inherit",minWidth:0,WebkitAppearance:"none",MozAppearance:"textfield"}}
                           step={(!isPrismatic&&!useRadians)?1:0.01}
