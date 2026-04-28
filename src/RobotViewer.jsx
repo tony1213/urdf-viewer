@@ -1083,7 +1083,10 @@ export default function RobotViewer(){
                     const num=parseFloat(raw);
                     if(isNaN(num))return;
                     const rad=(!isPrismatic&&!useRadians)?d2r(num):num;
-                    updateJoint(name,Math.max(lower,Math.min(upper,rad)));
+                    const clamped=Math.max(lower,Math.min(upper,rad));
+                    updateJoint(name,clamped);
+                    showDragAngle(name);
+                    setTimeout(clearDragAngle,800);
                   };
                   return(
                     <div key={name} className="ji" style={{padding:"10px 20px",borderBottom:`1px solid ${C.border}`}}>
@@ -1095,13 +1098,15 @@ export default function RobotViewer(){
                         min={lower} max={upper} step={0.001} value={value}
                         onChange={e=>{
                           updateJoint(name,+e.target.value);
-                          // Sync input box display value directly via DOM
+                          showDragAngle(name);
                           const inp=jointInputRefsMap.current[name];
                           if(inp&&document.activeElement!==inp){
                             const newDisp=(!isPrismatic&&!useRadians)?r2d(+e.target.value):+(+e.target.value).toFixed(4);
                             inp.value=String(newDisp);
                           }
-                        }}/>
+                        }}
+                        onMouseUp={()=>setTimeout(clearDragAngle,400)}
+                        onTouchEnd={()=>setTimeout(clearDragAngle,400)}/>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
                         <span style={{fontSize:10,color:C.dim,minWidth:38,flexShrink:0}}>{dispLo}{unit}</span>
                         <input type="number"
