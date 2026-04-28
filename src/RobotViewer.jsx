@@ -515,7 +515,7 @@ export default function RobotViewer(){
   },[]);
   const createMeasureMarker=(pos,color=0xff6600)=>{
     const sphere=new THREE.Mesh(
-      new THREE.SphereGeometry(0.006,12,8),
+      new THREE.SphereGeometry(0.001,10,6),
       new THREE.MeshBasicMaterial({color,depthTest:false,depthWrite:false})
     );
     sphere.renderOrder=1000;
