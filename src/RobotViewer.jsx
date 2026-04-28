@@ -11,14 +11,14 @@ function parseOBJ(text){const pos=[],nor=[],fv=[],fn=[];for(const line of text.s
 
 // ─── DAE ─────────────────────────────────────────────────────
 function parseDAE(text){
-  const doc=new DOMParser().parseFromString(text,"text/xml"),group=new THREE.Group(),fas={};
+  // Strip default namespace so querySelectorAll works (Collada uses xmlns="...")
+  const stripped=text.replace(/xmlns="[^"]*"/g,"").replace(/xmlns:[a-z]+="[^"]*"/g,"");
+  const doc=new DOMParser().parseFromString(stripped,"text/xml"),group=new THREE.Group(),fas={};
   for(const el of doc.querySelectorAll("float_array")){const id=el.getAttribute("id");if(id)fas[id]=el.textContent.trim().split(/\s+/).map(Number);}
   const getSrc=sid=>{const s=doc.getElementById(sid.replace("#",""));if(!s)return null;const f=s.querySelector("float_array");if(!f)return null;return fas[f.getAttribute("id")]||f.textContent.trim().split(/\s+/).map(Number);};
   const upEl=doc.querySelector("up_axis");const isYup=upEl&&upEl.textContent.trim()==="Y_UP";
 
   // Build geomId -> matrix map from visual_scene nodes
-  // Collada node matrix is row-major: [r0c0,r0c1,r0c2,r0c3, r1c0,...r3c3]
-  // We store it as a flat 16-element array for manual multiplication
   const nodeMatrix={};
   for(const node of doc.querySelectorAll("visual_scene node")){
     const matEl=node.querySelector("matrix");
@@ -28,19 +28,9 @@ function parseDAE(text){
       nodeMatrix[gid]=matEl.textContent.trim().split(/\s+/).map(Number);
     }
   }
-  // Manual 4x4 row-major matrix * vertex (homogeneous)
-  const applyMat=(m,x,y,z)=>[
-    m[0]*x+m[1]*y+m[2]*z+m[3],
-    m[4]*x+m[5]*y+m[6]*z+m[7],
-    m[8]*x+m[9]*y+m[10]*z+m[11]
-  ];
-  const applyMatN=(m,x,y,z)=>{
-    // Normal transform: inverse-transpose of upper-left 3x3
-    // For rotation-only matrices (no non-uniform scale), this equals applying the same rotation
-    const [nx,ny,nz]=[m[0]*x+m[1]*y+m[2]*z, m[4]*x+m[5]*y+m[6]*z, m[8]*x+m[9]*y+m[10]*z];
-    const len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-    return [nx/len,ny/len,nz/len];
-  };
+  // Row-major 4x4 matrix * vertex
+  const applyMat=(m,x,y,z)=>[m[0]*x+m[1]*y+m[2]*z+m[3],m[4]*x+m[5]*y+m[6]*z+m[7],m[8]*x+m[9]*y+m[10]*z+m[11]];
+  const applyMatN=(m,x,y,z)=>{const nx=m[0]*x+m[1]*y+m[2]*z,ny=m[4]*x+m[5]*y+m[6]*z,nz=m[8]*x+m[9]*y+m[10]*z,l=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;return[nx/l,ny/l,nz/l];};
 
   for(const me of doc.querySelectorAll("geometry mesh")){
     const gid=me.closest("geometry")?.getAttribute("id")||"";
