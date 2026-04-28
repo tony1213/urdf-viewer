@@ -292,8 +292,7 @@ export default function RobotViewer(){
   const[axisScale,setAxisScale]=useState(0.1);
   const[showCOM,setShowCOM]=useState(false);
   const[showInertia,setShowInertia]=useState(false);
-  const[showJointAngles,setShowJointAngles]=useState(false);
-  const angleMarkersRef=useRef([]); // [{arc, label, jointName}]
+  const dragAngleRef=useRef({arc:null,label:null}); // single joint angle marker during link drag
   // Per-link opacity: map of linkName -> opacity (0-1)
   const[linkOpacities,setLinkOpacities]=useState({});
   const[sidebarTab,setSidebarTab]=useState("joints"); // "joints"|"files"|"tree"
@@ -394,116 +393,66 @@ export default function RobotViewer(){
   useEffect(()=>{for(const m of comRef.current)m.visible=showCOM;},[showCOM,robot]);
   useEffect(()=>{for(const m of inertiaRef.current)m.visible=showInertia;},[showInertia,robot]);
 
-  // ─── Joint angle markers (arc + label) ────────────────────────
-  useEffect(()=>{
+  // ─── Single joint angle marker (shown only during link drag) ─
+  const showDragAngle=useCallback((jointName)=>{
     const scene=sceneRef.current;if(!scene)return;
-    // Remove old markers
-    for(const m of angleMarkersRef.current){if(m.arc)scene.remove(m.arc);if(m.label)scene.remove(m.label);}
-    angleMarkersRef.current=[];
-    if(!showJointAngles||!robot)return;
-    // Create arc + label for each non-fixed joint
-    for(const[name,obj]of Object.entries(jointObjRef.current)){
-      const{jointType}=obj.userData;
-      if(jointType==="fixed")continue;
-      // Arc geometry: will be updated in anim loop
-      const arcGroup=new THREE.Group();
-      arcGroup.userData.isAngleMarker=true;
-      scene.add(arcGroup);
-      // Label sprite: canvas texture
-      const canvas=document.createElement("canvas");
-      canvas.width=128;canvas.height=48;
-      const sprite=new THREE.Sprite(new THREE.SpriteMaterial({
-        map:new THREE.CanvasTexture(canvas),
-        transparent:true,depthTest:false,depthWrite:false,sizeAttenuation:true
-      }));
-      sprite.scale.set(0.12,0.045,1);
-      sprite.userData.isAngleMarker=true;
-      sprite.userData.canvas=canvas;
-      sprite.renderOrder=999;
-      scene.add(sprite);
-      angleMarkersRef.current.push({arc:arcGroup,label:sprite,jointName:name});
-    }
-  },[showJointAngles,robot]);
-
-  // Update angle markers every frame via patching into the anim loop
-  useEffect(()=>{
-    if(!showJointAngles)return;
-    const updateMarkers=()=>{
-      for(const{arc,label,jointName}of angleMarkersRef.current){
-        const obj=jointObjRef.current[jointName];if(!obj)continue;
-        const{value,axis,jointType}=obj.userData;
-        if(jointType==="fixed")continue;
-        obj.updateWorldMatrix(true,false);
-        const pos=new THREE.Vector3();obj.getWorldPosition(pos);
-        // Arc
-        arc.position.copy(pos);
-        // Remove old arc children
-        while(arc.children.length)arc.remove(arc.children[0]);
-        if(jointType==="revolute"||jointType==="continuous"){
-          const radius=0.06;
-          const angleAbs=Math.abs(value);
-          if(angleAbs>0.01){
-            const startAngle=value>0?0:-angleAbs;
-            const curve=new THREE.BufferGeometry();
-            const segments=Math.max(8,Math.round(angleAbs*20));
-            const pts=[];
-            // Build arc in the joint's local rotation plane
-            const worldAxis=axis.clone().transformDirection(obj.matrixWorld).normalize();
-            // Find two perpendicular vectors to worldAxis
-            const up=Math.abs(worldAxis.y)<0.9?new THREE.Vector3(0,1,0):new THREE.Vector3(1,0,0);
-            const u=new THREE.Vector3().crossVectors(worldAxis,up).normalize();
-            const v=new THREE.Vector3().crossVectors(worldAxis,u).normalize();
-            for(let i=0;i<=segments;i++){
-              const a=startAngle+(angleAbs*i/segments);
-              const px=u.x*Math.cos(a)+v.x*Math.sin(a);
-              const py=u.y*Math.cos(a)+v.y*Math.sin(a);
-              const pz=u.z*Math.cos(a)+v.z*Math.sin(a);
-              pts.push(px*radius,py*radius,pz*radius);
-            }
-            curve.setAttribute("position",new THREE.BufferAttribute(new Float32Array(pts),3));
-            const arcLine=new THREE.Line(curve,new THREE.LineBasicMaterial({color:0x22d3ee,linewidth:2,depthTest:false,depthWrite:false,transparent:true}));
-            arcLine.renderOrder=999;
-            arc.add(arcLine);
-            // Zero reference line
-            const zeroLine=new THREE.BufferGeometry();
-            zeroLine.setAttribute("position",new THREE.BufferAttribute(new Float32Array([0,0,0,u.x*radius*1.3,u.y*radius*1.3,u.z*radius*1.3]),3));
-            const zeroLineMesh=new THREE.Line(zeroLine,new THREE.LineBasicMaterial({color:0x64748b,linewidth:1,depthTest:false,depthWrite:false,transparent:true,opacity:0.6}));
-            zeroLineMesh.renderOrder=999;
-            arc.add(zeroLineMesh);
-            // Current angle line
-            const ca=value;
-            const cx=u.x*Math.cos(ca)+v.x*Math.sin(ca);
-            const cy=u.y*Math.cos(ca)+v.y*Math.sin(ca);
-            const cz=u.z*Math.cos(ca)+v.z*Math.sin(ca);
-            const curLine=new THREE.BufferGeometry();
-            curLine.setAttribute("position",new THREE.BufferAttribute(new Float32Array([0,0,0,cx*radius*1.3,cy*radius*1.3,cz*radius*1.3]),3));
-            const curLineMesh=new THREE.Line(curLine,new THREE.LineBasicMaterial({color:0x22d3ee,linewidth:1,depthTest:false,depthWrite:false,transparent:true}));
-            curLineMesh.renderOrder=999;
-            arc.add(curLineMesh);
-          }
+    const ref=dragAngleRef.current;
+    // Remove old
+    if(ref.arc){scene.remove(ref.arc);ref.arc=null;}
+    if(ref.label){scene.remove(ref.label);ref.label=null;}
+    if(!jointName)return;
+    const obj=jointObjRef.current[jointName];if(!obj)return;
+    const{value,axis,jointType}=obj.userData;
+    if(jointType==="fixed")return;
+    obj.updateWorldMatrix(true,false);
+    const pos=new THREE.Vector3();obj.getWorldPosition(pos);
+    // Arc group
+    const arcGroup=new THREE.Group();
+    arcGroup.position.copy(pos);
+    if(jointType==="revolute"||jointType==="continuous"){
+      const radius=0.08;
+      const angleAbs=Math.abs(value);
+      if(angleAbs>0.005){
+        const worldAxis=axis.clone().transformDirection(obj.matrixWorld).normalize();
+        const up=Math.abs(worldAxis.y)<0.9?new THREE.Vector3(0,1,0):new THREE.Vector3(1,0,0);
+        const u=new THREE.Vector3().crossVectors(worldAxis,up).normalize();
+        const v=new THREE.Vector3().crossVectors(worldAxis,u).normalize();
+        // Arc curve
+        const segments=Math.max(12,Math.round(angleAbs*24));
+        const pts=[];
+        const startAngle=value>0?0:-angleAbs;
+        for(let i=0;i<=segments;i++){
+          const a=startAngle+(angleAbs*i/segments);
+          pts.push((u.x*Math.cos(a)+v.x*Math.sin(a))*radius,(u.y*Math.cos(a)+v.y*Math.sin(a))*radius,(u.z*Math.cos(a)+v.z*Math.sin(a))*radius);
         }
-        // Update label text
-        const canvas=label.userData.canvas;
-        const ctx=canvas.getContext("2d");
-        ctx.clearRect(0,0,canvas.width,canvas.height);
-        ctx.fillStyle="rgba(0,0,0,0.6)";
-        ctx.beginPath();ctx.roundRect(0,4,canvas.width,canvas.height-8,8);ctx.fill();
-        ctx.fillStyle="#22d3ee";
-        ctx.font="bold 28px monospace";
-        ctx.textAlign="center";ctx.textBaseline="middle";
-        const deg=(value*(180/Math.PI)).toFixed(1);
-        const displayText=jointType==="prismatic"?`${value.toFixed(3)}m`:`${deg}°`;
-        ctx.fillText(displayText,canvas.width/2,canvas.height/2);
-        label.material.map.needsUpdate=true;
-        // Position label slightly above the joint
-        label.position.copy(pos);
-        label.position.y+=0.08;
+        const curve=new THREE.BufferGeometry();curve.setAttribute("position",new THREE.BufferAttribute(new Float32Array(pts),3));
+        const arcLine=new THREE.Line(curve,new THREE.LineBasicMaterial({color:0xff6600,linewidth:2,depthTest:false,depthWrite:false,transparent:true}));
+        arcLine.renderOrder=999;arcGroup.add(arcLine);
+        // Zero ref line
+        const zg=new THREE.BufferGeometry();zg.setAttribute("position",new THREE.BufferAttribute(new Float32Array([0,0,0,u.x*radius*1.4,u.y*radius*1.4,u.z*radius*1.4]),3));
+        const zl=new THREE.Line(zg,new THREE.LineBasicMaterial({color:0x888888,depthTest:false,depthWrite:false,transparent:true,opacity:0.6}));
+        zl.renderOrder=999;arcGroup.add(zl);
+        // Current angle line
+        const ca=value;const cx=u.x*Math.cos(ca)+v.x*Math.sin(ca),cy=u.y*Math.cos(ca)+v.y*Math.sin(ca),cz=u.z*Math.cos(ca)+v.z*Math.sin(ca);
+        const cg=new THREE.BufferGeometry();cg.setAttribute("position",new THREE.BufferAttribute(new Float32Array([0,0,0,cx*radius*1.4,cy*radius*1.4,cz*radius*1.4]),3));
+        const cl=new THREE.Line(cg,new THREE.LineBasicMaterial({color:0xff6600,depthTest:false,depthWrite:false,transparent:true}));
+        cl.renderOrder=999;arcGroup.add(cl);
       }
-    };
-    // Patch into animation loop via interval (simple approach)
-    const id=setInterval(updateMarkers,33); // ~30fps
-    return()=>clearInterval(id);
-  },[showJointAngles]);
+    }
+    scene.add(arcGroup);ref.arc=arcGroup;
+    // Label sprite
+    const canvas=document.createElement("canvas");canvas.width=160;canvas.height=56;
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle="rgba(0,0,0,0.7)";ctx.beginPath();ctx.roundRect(0,4,canvas.width,canvas.height-8,10);ctx.fill();
+    ctx.fillStyle="#ff6600";ctx.font="bold 32px monospace";ctx.textAlign="center";ctx.textBaseline="middle";
+    const deg=(value*(180/Math.PI)).toFixed(1);
+    ctx.fillText(jointType==="prismatic"?`${value.toFixed(3)}m`:`${deg}°`,canvas.width/2,canvas.height/2);
+    const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),transparent:true,depthTest:false,depthWrite:false,sizeAttenuation:true}));
+    sprite.scale.set(0.15,0.055,1);sprite.renderOrder=1000;
+    sprite.position.copy(pos);sprite.position.y+=0.1;
+    scene.add(sprite);ref.label=sprite;
+  },[]);
+  const clearDragAngle=useCallback(()=>{showDragAngle(null);},[showDragAngle]);
 
   // Per-link opacity effect
   useEffect(()=>{
@@ -778,6 +727,7 @@ export default function RobotViewer(){
         const cur=jObj.userData.value;
         const next=Math.max(lower,Math.min(upper,cur+dx*speed));
         updateJoint(jointName,next);
+        showDragAngle(jointName);
         const inp=jointInputRefsMap.current[jointName];
         if(inp&&document.activeElement!==inp){
           const isPrismatic=jointType==="prismatic";
@@ -813,11 +763,11 @@ export default function RobotViewer(){
         setHoverInfo(null);
       }
     }
-  },[updateCam,highlightLink,updateJoint,tcpMode]);
+  },[updateCam,highlightLink,updateJoint,showDragAngle,tcpMode]);
   const onMU=useCallback(e=>{
     if(e.button===1)midDown.current=false;
-    else{mouseDown.current=false;linkDragRef.current=null;}
-  },[]);
+    else{mouseDown.current=false;if(linkDragRef.current){linkDragRef.current=null;clearDragAngle();}}
+  },[clearDragAngle]);
   const onWh=useCallback(e=>{camAngle.current.radius=Math.max(0.2,Math.min(20,camAngle.current.radius+e.deltaY*0.003));updateCam();},[updateCam]);
 
   const processItems=useCallback(async dt=>{
@@ -911,7 +861,7 @@ export default function RobotViewer(){
           cursor:tcpMode?"crosshair":
             linkDragRef.current?"ew-resize":
             (hoverInfo&&robot&&Object.values(robot.joints).find(j=>j.child===hoverInfo.linkName&&j.type!=="fixed"))?"ew-resize":"grab",
-          background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;linkDragRef.current=null;highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
+          background:darkMode?"#0a0e17":"#f0f4f8"}} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;if(linkDragRef.current){linkDragRef.current=null;clearDragAngle();}highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
@@ -951,14 +901,6 @@ export default function RobotViewer(){
           {hasInertial&&<TBtn active={showInertia} onClick={()=>setShowInertia(!showInertia)} title={T.inertia} color="#8844ff">
             <svg width="18" height="18" viewBox="0 0 18 18"><ellipse cx="9" cy="9" rx="7" ry="4" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/><ellipse cx="9" cy="9" rx="4" ry="7" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/></svg>
           </TBtn>}
-          <TBtn active={showJointAngles} onClick={()=>setShowJointAngles(!showJointAngles)} title={T.jointAngles} color="#22d3ee">
-            <svg width="18" height="18" viewBox="0 0 18 18">
-              <path d="M4 14 L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              <path d="M4 14 L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              <path d="M10.5 14 A6.5 6.5 0 0 1 8.2 9.8" fill="none" stroke="currentColor" strokeWidth="1.2"/>
-              <text x="10" y="12" fontSize="7" fill="currentColor" fontWeight="bold">°</text>
-            </svg>
-          </TBtn>
           {showJointAxes&&(
             <div style={{background:`${C.panel}ee`,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 6px",width:36,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
               <div style={{fontSize:8,color:"#ffaa00",fontWeight:700}}>{T.axisSize}</div>
