@@ -25,9 +25,8 @@ function parseDAE(text){
       const vals=matEl.textContent.trim().split(/\s+/).map(Number);
       if(vals.length===16){
         mat4=new THREE.Matrix4();
-        // Collada matrix is row-major, THREE.Matrix4 is column-major
+        // Collada stores matrix row-major; THREE.Matrix4.set() takes row-major args — no transpose needed
         mat4.set(vals[0],vals[1],vals[2],vals[3],vals[4],vals[5],vals[6],vals[7],vals[8],vals[9],vals[10],vals[11],vals[12],vals[13],vals[14],vals[15]);
-        mat4.transpose(); // to column-major
       }
     }
     // Map geometry id to transform
