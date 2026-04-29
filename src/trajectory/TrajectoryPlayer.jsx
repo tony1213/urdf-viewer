@@ -16,13 +16,10 @@ function fmt(s) {
 }
 
 export default function TrajectoryPlayer({
-  // State
   playState, currentTime, duration, speed, loop, error, metadata,
-  // Actions
   onPlay, onPause, onStop, onSeek, onSpeedChange, onLoopToggle, onUnload,
-  // File loading
   onFileLoad,
-  // Theme
+  jointNames = [], robotJointNames = [],
   C, lang,
 }) {
   const fileRef = useRef(null);
@@ -32,6 +29,11 @@ export default function TrajectoryPlayer({
   const isPaused  = playState === PlayState.PAUSED;
   const hasTrack  = isLoaded || isPlaying || isPaused;
   const progress  = duration > 0 ? currentTime / duration : 0;
+
+  // Check joint name matching
+  const matchedJoints  = jointNames.filter(n => robotJointNames.includes(n));
+  const unmatchedJoints= jointNames.filter(n => !robotJointNames.includes(n));
+  const hasJointWarning= hasTrack && unmatchedJoints.length > 0 && robotJointNames.length > 0;
 
   const accent  = C?.accent  || '#22d3ee';
   const dim     = C?.dim     || '#64748b';
@@ -59,6 +61,14 @@ export default function TrajectoryPlayer({
       {error && (
         <div style={{ background: `${danger}22`, border: `1px solid ${danger}`, borderRadius: 8, padding: '6px 14px', fontSize: 11, color: danger }}>
           ⚠ {error}
+        </div>
+      )}
+      {/* Joint mismatch warning */}
+      {hasJointWarning && (
+        <div style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.5)', borderRadius: 8, padding: '6px 14px', fontSize: 11, color: '#fbbf24' }}>
+          ⚠ {lang==='zh'
+            ? `${unmatchedJoints.length}个关节名不匹配 (已匹配${matchedJoints.length}/${jointNames.length}): ${unmatchedJoints.slice(0,3).join(', ')}`
+            : `${unmatchedJoints.length} joints not found in robot (matched ${matchedJoints.length}/${jointNames.length}): ${unmatchedJoints.slice(0,3).join(', ')}`}
         </div>
       )}
 

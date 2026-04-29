@@ -1284,6 +1284,8 @@ export default function RobotViewer(){
           onSeek={traj.seek} onSpeedChange={traj.setSpeed}
           onLoopToggle={()=>traj.setLoop(v=>!v)} onUnload={traj.unload}
           onFileLoad={traj.load}
+          jointNames={traj.jointNames}
+          robotJointNames={Object.keys(jointObjRef.current)}
           C={C} lang={lang}
         />
         <div style={{position:"absolute",bottom:4,left:"50%",transform:"translateX(-50%)",fontSize:10,color:C.dim,opacity:0.5,zIndex:10,pointerEvents:"none",whiteSpace:"nowrap"}}>© 2026 Dong.Wu All Rights Reserved</div>
