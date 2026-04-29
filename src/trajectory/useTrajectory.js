@@ -1,223 +1,147 @@
 /**
  * useTrajectory.js
- * 轨迹播放状态机 + 定时器管理
+ * 轨迹播放状态机 + RAF 定时器
  *
- * 状态机：
- *   IDLE → LOADED → PLAYING ⇌ PAUSED
- *                      ↓
- *                   STOPPED → LOADED
+ * 关键设计：tick 存在 tickRef 中，RAF 永远调用 tickRef.current
+ * 避免 useCallback 重建导致旧闭包问题
  */
-
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { getJointsAtTime } from './interpolate.js';
 import { parseTrajectoryFile } from './trajectoryParser.js';
 
 export const PlayState = {
-  IDLE:    'IDLE',
-  LOADED:  'LOADED',
-  PLAYING: 'PLAYING',
-  PAUSED:  'PAUSED',
+  IDLE:'IDLE', LOADED:'LOADED', PLAYING:'PLAYING', PAUSED:'PAUSED',
 };
 
-/**
- * @param {{ onJointUpdate: (name: string, value: number) => void }} options
- */
 export function useTrajectory({ onJointUpdate }) {
   const [playState, setPlayState]     = useState(PlayState.IDLE);
-  const [trajectory, setTrajectory]   = useState(null);   // parsed trajectory object
+  const [trajectory, setTrajectory]   = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [speed, setSpeedState]        = useState(1);
   const [loop, setLoop]               = useState(false);
   const [error, setError]             = useState(null);
 
-  // Refs for use inside requestAnimationFrame callback
-  const rafRef        = useRef(null);
-  const lastTimestamp = useRef(null);
-  const currentTimeRef= useRef(0);
-  const speedRef      = useRef(1);
-  const loopRef       = useRef(false);
-  const trajRef       = useRef(null);
-  const playStateRef  = useRef(PlayState.IDLE);
+  const rafRef          = useRef(null);
+  const tickRef         = useRef(null);
+  const lastTs          = useRef(null);
+  const currentTimeRef  = useRef(0);
+  const speedRef        = useRef(1);
+  const loopRef         = useRef(false);
+  const trajRef         = useRef(null);
+  const playingRef      = useRef(false);
+  const onUpdateRef     = useRef(onJointUpdate);
 
-  // Keep refs in sync with state
-  useEffect(() => { speedRef.current = speed; },      [speed]);
-  useEffect(() => { loopRef.current = loop; },        [loop]);
-  useEffect(() => { trajRef.current = trajectory; },  [trajectory]);
-  useEffect(() => { playStateRef.current = playState; }, [playState]);
+  useEffect(() => { onUpdateRef.current = onJointUpdate; }, [onJointUpdate]);
+  useEffect(() => { speedRef.current = speed; },     [speed]);
+  useEffect(() => { loopRef.current  = loop; },      [loop]);
+  useEffect(() => { trajRef.current  = trajectory; },[trajectory]);
 
-  /** Push joint values to Three.js scene */
-  const applyFrame = useCallback((t) => {
+  const applyAtTime = (t) => {
     const traj = trajRef.current;
     if (!traj) return;
     const joints = getJointsAtTime(traj.frames, t);
     for (const [name, value] of Object.entries(joints)) {
-      onJointUpdate(name, value);
+      onUpdateRef.current(name, value);
     }
-  }, [onJointUpdate]);
+  };
 
-  /** Animation loop tick */
-  const tick = useCallback((timestamp) => {
-    if (playStateRef.current !== PlayState.PLAYING) return;
-
-    if (lastTimestamp.current === null) {
-      lastTimestamp.current = timestamp;
-    }
-
-    const elapsed = (timestamp - lastTimestamp.current) / 1000; // seconds
-    lastTimestamp.current = timestamp;
-
+  // tick stored in ref — RAF always calls tickRef.current(ts)
+  tickRef.current = (ts) => {
+    if (!playingRef.current) return;
+    if (lastTs.current === null) lastTs.current = ts;
+    const elapsed = (ts - lastTs.current) / 1000;
+    lastTs.current = ts;
     const traj = trajRef.current;
     if (!traj) return;
-
     let t = currentTimeRef.current + elapsed * speedRef.current;
-
     if (t >= traj.metadata.duration) {
       if (loopRef.current) {
         t = t % traj.metadata.duration;
       } else {
         t = traj.metadata.duration;
-        applyFrame(t);
+        applyAtTime(t);
         currentTimeRef.current = t;
         setCurrentTime(t);
+        playingRef.current = false;
+        rafRef.current = null;
+        lastTs.current = null;
         setPlayState(PlayState.PAUSED);
-        lastTimestamp.current = null;
         return;
       }
     }
-
     currentTimeRef.current = t;
     setCurrentTime(t);
-    applyFrame(t);
+    applyAtTime(t);
+    rafRef.current = requestAnimationFrame((ts2) => tickRef.current(ts2));
+  };
 
-    rafRef.current = requestAnimationFrame(tick);
-  }, [applyFrame]);
+  const startRAF = () => {
+    if (rafRef.current) return;
+    playingRef.current = true;
+    lastTs.current = null;
+    rafRef.current = requestAnimationFrame((ts) => tickRef.current(ts));
+  };
+  const stopRAF = () => {
+    playingRef.current = false;
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    lastTs.current = null;
+  };
 
-  /** Load trajectory from File object */
   const load = useCallback(async (file) => {
+    stopRAF();
+    setError(null);
     try {
-      setError(null);
       const traj = await parseTrajectoryFile(file);
+      trajRef.current = traj;
       setTrajectory(traj);
-      setCurrentTime(0);
       currentTimeRef.current = 0;
+      setCurrentTime(0);
       setPlayState(PlayState.LOADED);
-      // Apply first frame immediately
-      const joints = getJointsAtTime(traj.frames, 0);
-      for (const [name, value] of Object.entries(joints)) {
-        onJointUpdate(name, value);
-      }
+      applyAtTime(0);
     } catch (e) {
       setError(e.message);
       setPlayState(PlayState.IDLE);
     }
-  }, [onJointUpdate]);
+  }, []); // eslint-disable-line
 
-  /** Load from parsed trajectory object directly */
   const loadParsed = useCallback((traj) => {
-    setError(null);
+    stopRAF();
+    trajRef.current = traj;
     setTrajectory(traj);
-    setCurrentTime(0);
     currentTimeRef.current = 0;
+    setCurrentTime(0);
     setPlayState(PlayState.LOADED);
-    const joints = getJointsAtTime(traj.frames, 0);
-    for (const [name, value] of Object.entries(joints)) {
-      onJointUpdate(name, value);
-    }
-  }, [onJointUpdate]);
+    applyAtTime(0);
+  }, []); // eslint-disable-line
 
   const play = useCallback(() => {
     if (!trajRef.current) return;
-    // If at end, restart
-    if (currentTimeRef.current >= trajRef.current.metadata.duration) {
+    if (currentTimeRef.current >= (trajRef.current.metadata.duration - 0.001)) {
       currentTimeRef.current = 0;
       setCurrentTime(0);
     }
-    lastTimestamp.current = null;
     setPlayState(PlayState.PLAYING);
-  }, []);
+    startRAF();
+  }, []); // eslint-disable-line
 
-  const pause = useCallback(() => {
-    if (playStateRef.current === PlayState.PLAYING) {
-      setPlayState(PlayState.PAUSED);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-      lastTimestamp.current = null;
-    }
-  }, []);
+  const pause  = useCallback(() => { stopRAF(); setPlayState(PlayState.PAUSED); }, []);
+  const stop   = useCallback(() => { stopRAF(); currentTimeRef.current=0; setCurrentTime(0); setPlayState(PlayState.LOADED); applyAtTime(0); }, []); // eslint-disable-line
+  const unload = useCallback(() => { stopRAF(); trajRef.current=null; setTrajectory(null); currentTimeRef.current=0; setCurrentTime(0); setPlayState(PlayState.IDLE); setError(null); }, []);
+  const seek   = useCallback((t) => {
+    const traj = trajRef.current; if (!traj) return;
+    const c = Math.max(0, Math.min(traj.metadata.duration, t));
+    currentTimeRef.current = c; setCurrentTime(c); applyAtTime(c);
+  }, []); // eslint-disable-line
+  const setSpeed = useCallback((v) => { setSpeedState(v); speedRef.current = v; }, []);
 
-  const stop = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    lastTimestamp.current = null;
-    currentTimeRef.current = 0;
-    setCurrentTime(0);
-    setPlayState(PlayState.LOADED);
-    if (trajRef.current) applyFrame(0);
-  }, [applyFrame]);
-
-  const unload = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    lastTimestamp.current = null;
-    currentTimeRef.current = 0;
-    setCurrentTime(0);
-    setTrajectory(null);
-    setPlayState(PlayState.IDLE);
-    setError(null);
-  }, []);
-
-  /** Seek to a specific time (0 ~ duration) */
-  const seek = useCallback((t) => {
-    const traj = trajRef.current;
-    if (!traj) return;
-    const clamped = Math.max(0, Math.min(traj.metadata.duration, t));
-    currentTimeRef.current = clamped;
-    setCurrentTime(clamped);
-    applyFrame(clamped);
-  }, [applyFrame]);
-
-  const setSpeed = useCallback((v) => {
-    setSpeedState(v);
-    speedRef.current = v;
-  }, []);
-
-  // Start / stop RAF when playState changes to PLAYING / not PLAYING
-  useEffect(() => {
-    if (playState === PlayState.PLAYING) {
-      if (!rafRef.current) {
-        rafRef.current = requestAnimationFrame(tick);
-      }
-    } else {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-    }
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [playState, tick]);
+  useEffect(() => () => stopRAF(), []);
 
   return {
-    // State
-    playState,
-    trajectory,
-    currentTime,
-    duration: trajectory?.metadata.duration ?? 0,
-    speed,
-    loop,
-    error,
+    playState, trajectory, currentTime,
+    duration:   trajectory?.metadata.duration ?? 0,
+    speed, loop, error,
     jointNames: trajectory?.jointNames ?? [],
-    metadata: trajectory?.metadata ?? null,
-    // Actions
-    load,
-    loadParsed,
-    play,
-    pause,
-    stop,
-    unload,
-    seek,
-    setSpeed,
-    setLoop,
+    metadata:   trajectory?.metadata ?? null,
+    load, loadParsed, play, pause, stop, unload, seek, setSpeed, setLoop,
   };
 }
