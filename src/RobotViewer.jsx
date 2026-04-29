@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
+import { useTrajectory, PlayState } from "./trajectory/useTrajectory.js";
+import TrajectoryPlayer from "./trajectory/TrajectoryPlayer.jsx";
 
 // ─── STL ─────────────────────────────────────────────────────
 function parseSTLBin(buf){const dv=new DataView(buf),tri=dv.getUint32(80,true),v=new Float32Array(tri*9),n=new Float32Array(tri*9);let o=84;for(let i=0;i<tri;i++){const nx=dv.getFloat32(o,true);o+=4;const ny=dv.getFloat32(o,true);o+=4;const nz=dv.getFloat32(o,true);o+=4;for(let j=0;j<3;j++){const x=i*9+j*3;v[x]=dv.getFloat32(o,true);o+=4;v[x+1]=dv.getFloat32(o,true);o+=4;v[x+2]=dv.getFloat32(o,true);o+=4;n[x]=nx;n[x+1]=ny;n[x+2]=nz;}o+=2;}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(v,3));g.setAttribute("normal",new THREE.BufferAttribute(n,3));return g;}
@@ -874,6 +876,9 @@ export default function RobotViewer(){
     setJointVals(p=>({...p,[name]:val}));},[]);
   const resetJoints=useCallback(()=>{for(const n of Object.keys(jointObjRef.current))updateJoint(n,0);},[updateJoint]);
 
+  // ─── Trajectory playback ──────────────────────────────────────
+  const traj=useTrajectory({onJointUpdate:updateJoint});
+
   // Highlight / unhighlight link meshes on hover
   const highlightLink=useCallback((linkName)=>{
     if(linkName===hoveredLinkRef.current)return;
@@ -1016,7 +1021,17 @@ export default function RobotViewer(){
     if(!urdf){setError("未在文件夹中找到 .urdf 文件");setLoading(false);return;}
     setLoadMsg(`加载 ${urdfName}...`);await loadURDF(urdf,fileMap);
   },[loadURDF]);
-  const onDrop=useCallback(async e=>{e.preventDefault();setDragging(false);setLoading(true);setError(null);try{await processItems(e.dataTransfer);}catch(err){setError(err.message);setLoading(false);}},[processItems]);
+  const onDrop=useCallback(async e=>{
+    e.preventDefault();setDragging(false);
+    // Check if it's a .json file → load as trajectory
+    const files=e.dataTransfer.files;
+    if(files.length===1&&files[0].name.endsWith('.json')){
+      await traj.load(files[0]);
+      return;
+    }
+    setLoading(true);setError(null);
+    try{await processItems(e.dataTransfer);}catch(err){setError(err.message);setLoading(false);}
+  },[processItems,traj.load]);
   const onFolderSelect=useCallback(async e=>{const fls=e.target.files;if(!fls?.length)return;setLoading(true);setError(null);const fileMap=new Map(),arr=[];let urdf=null;for(let i=0;i<fls.length;i++){const f=fls[i],path=f.webkitRelativePath||f.name;arr.push({path,file:f});const ext=path.split(".").pop().toLowerCase();if((ext==="urdf"||ext==="xacro")&&!urdf){urdf=await f.text();}fileMap.set(path,f);const parts=path.split("/");if(parts.length>1)fileMap.set(parts.slice(1).join("/"),f);if(parts.length>2)fileMap.set(parts.slice(2).join("/"),f);}setFiles(arr.map(f=>f.path));if(!urdf){for(const{path,file}of arr){if(path.endsWith(".xml")){const t=await file.text();if(t.includes("<robot")){urdf=t;break;}}}}if(!urdf){setError("未在文件夹中找到 .urdf 文件");setLoading(false);return;}await loadURDF(urdf,fileMap);},[loadURDF]);
 
   const jEntries=Object.entries(jointVals).filter(([n])=>{const o=jointObjRef.current[n];return o&&o.userData.jointType!=="fixed";});
@@ -1228,6 +1243,17 @@ export default function RobotViewer(){
             </div>
           );
         })()}
+        {/* Trajectory Player */}
+        <TrajectoryPlayer
+          playState={traj.playState} currentTime={traj.currentTime}
+          duration={traj.duration} speed={traj.speed} loop={traj.loop}
+          error={traj.error} metadata={traj.metadata}
+          onPlay={traj.play} onPause={traj.pause} onStop={traj.stop}
+          onSeek={traj.seek} onSpeedChange={traj.setSpeed}
+          onLoopToggle={()=>traj.setLoop(v=>!v)} onUnload={traj.unload}
+          onFileLoad={traj.load}
+          C={C} lang={lang}
+        />
         <div style={{position:"absolute",bottom:4,left:"50%",transform:"translateX(-50%)",fontSize:10,color:C.dim,opacity:0.5,zIndex:10,pointerEvents:"none",whiteSpace:"nowrap"}}>© 2026 Dong.Wu All Rights Reserved</div>
 
         {/* Hover tooltip */}
