@@ -869,15 +869,47 @@ export default function RobotViewer(){
 
   const updateJoint=useCallback((name,val)=>{const o=jointObjRef.current[name];if(!o)return;const{axis,jointType,initQuat}=o.userData;o.userData.value=val;
     if(jointType==="revolute"||jointType==="continuous"){
-      // Restore initial orientation, then apply joint rotation on top
       const jointRot=new THREE.Quaternion().setFromAxisAngle(axis,val);
       o.quaternion.copy(initQuat).multiply(jointRot);
     }else if(jointType==="prismatic"){if(!o.userData.op)o.userData.op=o.position.clone();o.position.copy(o.userData.op).addScaledVector(axis,val);}
     setJointVals(p=>({...p,[name]:val}));},[]);
   const resetJoints=useCallback(()=>{for(const n of Object.keys(jointObjRef.current))updateJoint(n,0);},[updateJoint]);
 
+  // For trajectory: only update Three.js objects, skip React state (too many re-renders at 30fps)
+  // React state (sliders) syncs every 100ms via interval
+  const updateJointSilent=useCallback((name,val)=>{
+    const o=jointObjRef.current[name];if(!o)return;
+    const{axis,jointType,initQuat}=o.userData;
+    o.userData.value=val;
+    if(jointType==="revolute"||jointType==="continuous"){
+      const jointRot=new THREE.Quaternion().setFromAxisAngle(axis,val);
+      o.quaternion.copy(initQuat).multiply(jointRot);
+    }else if(jointType==="prismatic"){
+      if(!o.userData.op)o.userData.op=o.position.clone();
+      o.position.copy(o.userData.op).addScaledVector(axis,val);
+    }
+  },[]);
+
+  // Stable ref for trajectory onJointUpdate
+  const updateJointRef=useRef(updateJointSilent);
+  useEffect(()=>{updateJointRef.current=updateJointSilent;},[updateJointSilent]);
+  const updateJointStable=useCallback((name,val)=>updateJointRef.current(name,val),[]);
+
   // ─── Trajectory playback ──────────────────────────────────────
-  const traj=useTrajectory({onJointUpdate:updateJoint});
+  const traj=useTrajectory({onJointUpdate:updateJointStable});
+
+  // Sync slider state from Three.js every 100ms during playback
+  useEffect(()=>{
+    if(traj.playState!=="PLAYING")return;
+    const id=setInterval(()=>{
+      const vals={};
+      for(const[name,o]of Object.entries(jointObjRef.current)){
+        if(o.userData.value!==undefined)vals[name]=o.userData.value;
+      }
+      setJointVals(prev=>({...prev,...vals}));
+    },100);
+    return()=>clearInterval(id);
+  },[traj.playState]);
 
   // Highlight / unhighlight link meshes on hover
   const highlightLink=useCallback((linkName)=>{
