@@ -42,9 +42,11 @@ const ROBOTS = [
   },
   {
     label: 'KUKA KR210 R2700-2',
-    dir: '/tmp/robots/kuka_kr210',
-    urdfName: 'kr210l150.urdf',
+    dir: '/home/rob/Downloads/urdf/KUKA_KR210_R2700_2/kr210_r2700_2',
+    urdfName: 'kr210_r2700_2.urdf',
     output: 'kuka_kr210.png',
+    // Zero-pose lays flat; set joint_2/3 to raise the arm upright
+    pose: { joint_2: -90, joint_3: 90, joint_5: 45 },
   },
 ];
 
@@ -130,6 +132,31 @@ async function captureRobot(page, robot) {
     () => !document.querySelector('[style*="spin 1s linear infinite"]'),
     { timeout: 90000, polling: 500 }
   );
+
+  // Apply custom joint pose if specified (values in degrees)
+  if (robot.pose) {
+    for (const [jointName, degrees] of Object.entries(robot.pose)) {
+      const applied = await page.evaluate((name, deg) => {
+        // Each joint row has class "ji"; look for the name span inside it
+        for (const ji of document.querySelectorAll('.ji')) {
+          const spans = ji.querySelectorAll('span');
+          const nameSpan = Array.from(spans).find(s => s.textContent.trim() === name);
+          if (nameSpan) {
+            const input = ji.querySelector('input[type="number"]');
+            if (input) {
+              // Set via native setter so React picks it up on blur
+              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, String(deg));
+              input.dispatchEvent(new Event('blur', { bubbles: true }));
+              return true;
+            }
+          }
+        }
+        return false;
+      }, jointName, degrees);
+      if (!applied) console.log(`  warn: no input found for "${jointName}"`);
+    }
+    await new Promise(r => setTimeout(r, 600));
+  }
 
   // Give Three.js a moment to finish the render pass
   await new Promise(r => setTimeout(r, 2000));
