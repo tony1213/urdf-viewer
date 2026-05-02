@@ -40,6 +40,12 @@ const ROBOTS = [
     urdfName: 'panda.urdf',
     output: 'franka_panda.png',
   },
+  {
+    label: 'KUKA KR210 R2700-2',
+    dir: '/tmp/robots/kuka_kr210',
+    urdfName: 'kr210l150.urdf',
+    output: 'kuka_kr210.png',
+  },
 ];
 
 function getAllFiles(dir, out = []) {
