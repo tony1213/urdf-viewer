@@ -15,38 +15,45 @@ const SCREENSHOTS_DIR = path.join(REPO_DIR, 'screenshots');
 const BASE_URL = 'http://localhost:4173/urdf-viewer/';
 const VIEWPORT = { width: 1280, height: 800 };
 
+const ROBOTS_DIR = '/home/rob/Downloads/urdf';
+
 const ROBOTS = [
   {
     label: 'Unitree G1',
-    dir: '/tmp/robots/unitree_ros/robots/g1_description',
+    dir: `${ROBOTS_DIR}/unitree_ros/robots/g1_description`,
     urdfName: 'g1_29dof.urdf',
     output: 'unitree_g1.png',
   },
   {
     label: 'Unitree H1',
-    dir: '/tmp/robots/unitree_ros/robots/h1_description',
+    dir: `${ROBOTS_DIR}/unitree_ros/robots/h1_description`,
     urdfName: 'h1.urdf',
     output: 'unitree_h1.png',
   },
   {
     label: 'Unitree Go2',
-    dir: '/tmp/robots/unitree_ros/robots/go2_description',
+    dir: `${ROBOTS_DIR}/unitree_ros/robots/go2_description`,
     urdfName: 'go2_description.urdf',
     output: 'unitree_go2.png',
   },
   {
     label: 'Franka Panda',
-    dir: '/tmp/robots/panda',
+    dir: `${ROBOTS_DIR}/panda`,
     urdfName: 'panda.urdf',
     output: 'franka_panda.png',
   },
   {
     label: 'KUKA KR210 R2700-2',
-    dir: '/home/rob/Downloads/urdf/KUKA_KR210_R2700_2/kr210_r2700_2',
+    dir: `${ROBOTS_DIR}/KUKA_KR210_R2700_2/kr210_r2700_2`,
     urdfName: 'kr210_r2700_2.urdf',
     output: 'kuka_kr210.png',
-    // Zero-pose lays flat; set joint_2/3 to raise the arm upright
     pose: { joint_2: -90, joint_3: 90, joint_5: 45 },
+  },
+  {
+    label: 'AgiBot X1',
+    dir: `${ROBOTS_DIR}/agibot_x1/resources/robots/x1`,
+    urdfName: 'x1.urdf',
+    output: 'agibot_x1.png',
   },
 ];
 

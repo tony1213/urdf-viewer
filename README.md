@@ -19,6 +19,9 @@
 <td align="center"><img src="screenshots/kuka_kr210.png" width="480"/><br><b>KUKA KR210 R2700-2</b>（6-DOF 工业臂）</td>
 <td align="center"><img src="screenshots/inspire_hand.png" width="480"/><br><b>Inspire Hand FTP</b>（5指灵巧手）</td>
 </tr>
+<tr>
+<td align="center" colspan="2"><img src="screenshots/agibot_x1.png" width="480"/><br><b>AgiBot X1</b>（人形机器人，训练用简化 mesh）</td>
+</tr>
 </table>
 
 ## 功能特性
@@ -127,6 +130,7 @@ npm run build    # 构建生产版本
 | Unitree H1 | 人形 | STL | ✅ 正常 |
 | Unitree Go2 | 四足 | DAE | ⚠️ DAE 渲染问题 |
 | PR2 | 移动操作平台 | STL/DAE | ✅ 正常 |
+| AgiBot X1 | 人形机器人 | STL | ⚠️ 官方训练仓库为简化 mesh |
 
 ## 技术栈
 
