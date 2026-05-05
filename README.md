@@ -144,6 +144,10 @@ npm run build    # 构建生产版本
 - Go2 等使用 DAE 格式 mesh 的机器人可能存在 node matrix 变换问题
 - Three.js 需固定在 0.162.0 版本（0.184.0 与 Vite 存在 TDZ 兼容性问题）
 
+## 技术支持
+
+如有问题或建议，欢迎通过邮件联系：[wud5942@gmail.com](mailto:wud5942@gmail.com)
+
 ## License
 
 MIT
