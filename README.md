@@ -146,7 +146,7 @@ npm run build    # 构建生产版本
 
 ## 技术支持
 
-如有问题或建议，欢迎通过邮件联系：[wud5942@gmail.com](mailto:wud5942@gmail.com)
+如有问题或建议，欢迎通过邮件联系：[tony10012.tc@gmail.com](mailto:tony10012.tc@gmail.com)
 
 ## License
 
