@@ -16,7 +16,8 @@
 <td align="center"><img src="screenshots/franka_panda.png" width="480"/><br><b>Franka Panda</b>（7-DOF 协作臂）</td>
 </tr>
 <tr>
-<td align="center" colspan="2"><img src="screenshots/kuka_kr210.png" width="480"/><br><b>KUKA KR210 R2700-2</b>（6-DOF 工业臂）</td>
+<td align="center"><img src="screenshots/kuka_kr210.png" width="480"/><br><b>KUKA KR210 R2700-2</b>（6-DOF 工业臂）</td>
+<td align="center"><img src="screenshots/inspire_hand.png" width="480"/><br><b>Inspire Hand FTP</b>（5指灵巧手）</td>
 </tr>
 </table>
 
