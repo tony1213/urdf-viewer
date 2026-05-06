@@ -138,6 +138,19 @@ function createCOM(mass,origin){const g=new THREE.Group();g.userData.isCOM=true;
 function createInertia(mass,inertia,origin){const g=new THREE.Group();g.userData.isInertia=true;if(!inertia||mass<=0)return g;const{ixx,iyy,izz}=inertia;const rx=Math.sqrt(Math.max(0.0001,5*(iyy+izz-ixx)/(4*mass))),ry=Math.sqrt(Math.max(0.0001,5*(ixx+izz-iyy)/(4*mass))),rz=Math.sqrt(Math.max(0.0001,5*(ixx+iyy-izz)/(4*mass)));const geo=new THREE.SphereGeometry(1,16,12);const mat=new THREE.MeshBasicMaterial({color:0x8844ff,wireframe:true,depthTest:false,transparent:true,opacity:0.4});const m=new THREE.Mesh(geo,mat);m.scale.set(Math.min(rx,0.5),Math.min(ry,0.5),Math.min(rz,0.5));m.renderOrder=997;g.add(m);g.position.set(...origin.xyz);const[r,p,y]=origin.rpy;g.rotation.set(r,p,y,"ZYX");return g;}
 
 // ─── Build Scene ─────────────────────────────────────────────
+function makeJointLabelSprite(num,type){
+  const sz=64,cv=document.createElement("canvas");cv.width=cv.height=sz;
+  const ctx=cv.getContext("2d");
+  const col={revolute:"#22d3ee",prismatic:"#ffd700",continuous:"#88ff88"}[type]||"#aaaaaa";
+  ctx.beginPath();ctx.arc(32,32,28,0,Math.PI*2);ctx.fillStyle=col+"cc";ctx.fill();
+  ctx.strokeStyle="#fff";ctx.lineWidth=2.5;ctx.stroke();
+  ctx.fillStyle="#fff";ctx.font="bold 24px monospace";ctx.textAlign="center";ctx.textBaseline="middle";
+  ctx.fillText(String(num),32,32);
+  const tex=new THREE.CanvasTexture(cv);
+  const mat=new THREE.SpriteMaterial({map:tex,depthTest:false,transparent:true,sizeAttenuation:true});
+  const sp=new THREE.Sprite(mat);sp.renderOrder=999;return sp;
+}
+
 async function buildRobotScene(robot,fileMap){
   const linkObjects={},jointObjects={},comMarkers=[],inertiaMarkers=[],axisHelpers=[];
   const resolve=fn=>fn.replace(/^package:\/\/[^/]*\//,"").replace(/^(model|file):\/\/[^/]*\//,"").replace(/^\.\//,"");
@@ -180,21 +193,29 @@ async function buildRobotScene(robot,fileMap){
         const initEuler=new THREE.Euler(r,p,y,"ZYX");
         const initQuat=new THREE.Quaternion().setFromEuler(initEuler);
         jg.quaternion.copy(initQuat);
-        jg.userData={jointType:joint.type,axis:new THREE.Vector3(...joint.axis),lower:joint.lower,upper:joint.upper,value:0,initQuat:initQuat.clone()};
+        jg.userData={jointType:joint.type,axis:new THREE.Vector3(...joint.axis),lower:joint.lower,upper:joint.upper,value:0,initQuat:initQuat.clone(),autoScale:0};
         // Compute link bounding box to auto-scale axis helper
         const bbox=new THREE.Box3().setFromObject(lg);
         const bsize=new THREE.Vector3();bbox.getSize(bsize);
         const linkSize=Math.max(bsize.x,bsize.y,bsize.z)||0.1;
         // Scale proportional to link size, clamped to [0.03, 0.3]
         const autoScale=Math.max(0.03,Math.min(0.3,linkSize*0.4));
-        const ah=createRGBAxesHelper(autoScale);ah.visible=false;jg.add(ah);axisHelpers.push(ah);
+        const ah=createRGBAxesHelper(autoScale);ah.visible=false;jg.add(ah);axisHelpers.push(ah);jg.userData.autoScale=autoScale;
         lg.add(jg);jointObjects[joint.name]=jg;
         await build(joint.child,jg);
       }
     }
   };
   await build(rootLink,rootGroup);
-  return{rootGroup,jointObjects,linkObjects,comMarkers,inertiaMarkers,axisHelpers};
+  const jointLabels=[];let labelIdx=1;
+  for(const[name,jg]of Object.entries(jointObjects)){
+    const{jointType,autoScale}=jg.userData;if(jointType==="fixed")continue;
+    const sp=makeJointLabelSprite(labelIdx,jointType);
+    sp.scale.setScalar(0.08);
+    sp.visible=false;jg.add(sp);
+    jointLabels.push({sprite:sp,index:labelIdx,name,type:jointType});labelIdx++;
+  }
+  return{rootGroup,jointObjects,linkObjects,comMarkers,inertiaMarkers,axisHelpers,jointLabels};
 }
 
 // ─── Build URDF tree structure for display (hierarchical) ────
@@ -272,7 +293,7 @@ export default function RobotViewer(){
   const animRef=useRef(null),mouseDown=useRef(false),midDown=useRef(false),lastM=useRef({x:0,y:0});
   const camAngle=useRef({theta:Math.PI/4,phi:Math.PI/3,radius:2});
   const lookTarget=useRef(new THREE.Vector3(0,0.3,0));
-  const comRef=useRef([]),inertiaRef=useRef([]),axisRef=useRef([]);
+  const comRef=useRef([]),inertiaRef=useRef([]),axisRef=useRef([]),jointLabelRef=useRef([]);
   const containerRef=useRef(null);
   const raycasterRef=useRef(new THREE.Raycaster());
   const hoveredLinkRef=useRef(null); // currently hovered link name
@@ -304,6 +325,10 @@ export default function RobotViewer(){
   const[axisScale,setAxisScale]=useState(0.1);
   const[showCOM,setShowCOM]=useState(false);
   const[showInertia,setShowInertia]=useState(false);
+  const[showJointLabels,setShowJointLabels]=useState(false);
+  const[jointLabelScale,setJointLabelScale]=useState(0.02);
+  const[jointLabelMap,setJointLabelMap]=useState([]); // [{index,name,type}]
+  const[highlightedJointLabel,setHighlightedJointLabel]=useState(null);
   const dragAngleRef=useRef({arc:null,label:null}); // single joint angle marker during link drag
   // Per-link opacity: map of linkName -> opacity (0-1)
   const[linkOpacities,setLinkOpacities]=useState({});
@@ -411,6 +436,14 @@ export default function RobotViewer(){
   useEffect(()=>{for(const ah of axisRef.current)ah.scale.setScalar(axisScale/0.1);},[axisScale,robot]);
   useEffect(()=>{for(const m of comRef.current)m.visible=showCOM;},[showCOM,robot]);
   useEffect(()=>{for(const m of inertiaRef.current)m.visible=showInertia;},[showInertia,robot]);
+  useEffect(()=>{
+    for(const{sprite,name}of jointLabelRef.current){
+      const hl=name===highlightedJointLabel;
+      sprite.visible=showJointLabels||hl;
+      sprite.scale.setScalar(hl?jointLabelScale*1.8:jointLabelScale);
+      sprite.material.color.set(hl?0xff8800:0xffffff);
+    }
+  },[showJointLabels,jointLabelScale,highlightedJointLabel,robot]);
 
   // ─── Single joint angle marker (shown only during link drag) ─
   const showDragAngle=useCallback((jointName)=>{
@@ -847,9 +880,11 @@ export default function RobotViewer(){
       const parsed=parseURDF(urdfStr);let mc=0;for(const l of Object.values(parsed.links))for(const v of(l.visuals||[]))if(v.type==="mesh")mc++;
       setLoadMsg(`构建场景 · ${mc} 个 mesh...`);
       if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);
-      const{rootGroup,jointObjects,linkObjects,comMarkers,inertiaMarkers,axisHelpers}=await buildRobotScene(parsed,fileMap);
+      const{rootGroup,jointObjects,linkObjects,comMarkers,inertiaMarkers,axisHelpers,jointLabels}=await buildRobotScene(parsed,fileMap);
       robotGroupRef.current=rootGroup;jointObjRef.current=jointObjects;linkObjRef.current=linkObjects;
       comRef.current=comMarkers;inertiaRef.current=inertiaMarkers;axisRef.current=axisHelpers;
+      jointLabelRef.current=jointLabels; // [{sprite,index,name,type}]
+      setJointLabelMap(jointLabels.map(({index,name,type})=>({index,name,type})));
       const wg=new THREE.Group();wg.add(rootGroup);worldGroupRef.current=wg;
       const og=new THREE.Group();og.add(wg);offsetGroupRef.current=og;sceneRef.current.add(og);
       applyCoord(upAxisRef.current,upSignRef.current);
@@ -1052,7 +1087,7 @@ export default function RobotViewer(){
     foundFiles:n=>`找到 ${n} 个文件...`,loadFile:n=>`加载 ${n}...`,buildScene:n=>`构建场景 · ${n} 个 mesh...`,
     noUrdf:"未在文件夹中找到 .urdf 文件",parseUrdf:"解析 URDF...",
     grid:"网格",coordAxes:"坐标轴",wireframe:"线框",toggleBg:"切换背景",
-    jointAxes:"关节坐标系 (RGB)",com:"质心 (COM)",inertia:"转动惯量",axisSize:"尺寸",jointAngles:"关节角度标注",
+    jointAxes:"关节坐标系 (RGB)",com:"质心 (COM)",inertia:"转动惯量",axisSize:"尺寸",jointAngles:"关节角度标注",jointLabels:"关节编号",
     coordSys:"坐标系 (Up Axis)",heightOffset:"模型高度偏移",autoGround:"⬇ 自动落地",viewPresets:"视角预设",
     front:"前",back:"后",left:"左",right:"右",top:"上",persp:"透视",
     urdfTree:"🔗 URDF 树",folderTree:"📁 文件夹",noFolderData:"无文件夹数据",
@@ -1065,7 +1100,7 @@ export default function RobotViewer(){
     foundFiles:n=>`Found ${n} files...`,loadFile:n=>`Loading ${n}...`,buildScene:n=>`Building scene · ${n} meshes...`,
     noUrdf:"No .urdf file found in folder",parseUrdf:"Parsing URDF...",
     grid:"Grid",coordAxes:"Axes",wireframe:"Wireframe",toggleBg:"Toggle BG",
-    jointAxes:"Joint Axes (RGB)",com:"COM",inertia:"Inertia",axisSize:"Size",jointAngles:"Joint Angles",
+    jointAxes:"Joint Axes (RGB)",com:"COM",inertia:"Inertia",axisSize:"Size",jointAngles:"Joint Angles",jointLabels:"Joint Labels",
     coordSys:"Coord System (Up Axis)",heightOffset:"Model Height Offset",autoGround:"⬇ Auto Ground",viewPresets:"View Presets",
     front:"Front",back:"Back",left:"Left",right:"Right",top:"Top",persp:"Persp",
     urdfTree:"🔗 URDF Tree",folderTree:"📁 Folder",noFolderData:"No folder data",
@@ -1152,6 +1187,17 @@ export default function RobotViewer(){
           {hasInertial&&<TBtn active={showInertia} onClick={()=>setShowInertia(!showInertia)} title={T.inertia} color="#8844ff">
             <svg width="18" height="18" viewBox="0 0 18 18"><ellipse cx="9" cy="9" rx="7" ry="4" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/><ellipse cx="9" cy="9" rx="4" ry="7" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/></svg>
           </TBtn>}
+          {robot&&jointLabelMap.length>0&&<TBtn active={showJointLabels} onClick={()=>setShowJointLabels(v=>!v)} title={T.jointLabels} color="#00e5ff">
+            <svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="1.5"/><text x="9" y="13" textAnchor="middle" fontSize="9" fontWeight="bold" fill="currentColor" fontFamily="monospace">#</text></svg>
+          </TBtn>}
+          {showJointLabels&&jointLabelMap.length>0&&(
+            <div style={{background:`${C.panel}ee`,border:`1px solid #00e5ff44`,borderRadius:8,padding:"8px 6px",width:36,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <div style={{fontSize:8,color:"#00e5ff",fontWeight:700}}>{lang==="zh"?"大小":"Size"}</div>
+              <input type="range" min={0.02} max={0.3} step={0.005} value={jointLabelScale} onChange={e=>setJointLabelScale(+e.target.value)}
+                style={{width:60,transform:"rotate(-90deg)",transformOrigin:"center",margin:"20px 0",appearance:"none",WebkitAppearance:"none",height:3,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
+              <div style={{fontSize:8,color:C.dim}}>{jointLabelScale.toFixed(2)}</div>
+            </div>
+          )}
           {showJointAxes&&(
             <div style={{background:`${C.panel}ee`,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 6px",width:36,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
               <div style={{fontSize:8,color:"#ffaa00",fontWeight:700}}>{T.axisSize}</div>
@@ -1409,12 +1455,16 @@ export default function RobotViewer(){
                     showDragAngle(name);
                     setTimeout(clearDragAngle,800);
                   };
+                  const labelIdx=jointLabelMap.find(l=>l.name===name)?.index;
+                  const isHl=highlightedJointLabel===name;
                   return(
-                    <div key={name} className="ji" style={{padding:"10px 20px",borderBottom:`1px solid ${C.border}`}}>
+                    <div key={name} className="ji" style={{padding:"10px 20px",borderBottom:`1px solid ${C.border}`,background:isHl?`#ff880011`:"transparent",cursor:"pointer"}}
+                      onClick={()=>setHighlightedJointLabel(prev=>prev===name?null:name)}>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                        {labelIdx!=null&&<span style={{fontSize:9,fontWeight:700,color:isHl?"#ff8800":"#00e5ff",background:isHl?"#ff880033":"#00e5ff22",borderRadius:3,padding:"1px 4px",flexShrink:0,transition:"all 0.15s"}}>#{labelIdx}</span>}
                         <span style={{fontSize:9,color:C.dim,textTransform:"uppercase",letterSpacing:"0.08em",flexShrink:0}}>{jointType}</span>
                         <span style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,
-                          color:selectedJoints.includes(name)?C.accent:C.text,
+                          color:selectedJoints.includes(name)?C.accent:isHl?"#ff8800":C.text,
                           cursor:"pointer",textDecoration:selectedJoints.includes(name)?"underline":"none"}}
                           title={`${name} — ${lang==="zh"?"点击选择测距":"click to measure distance"}`}
                           onClick={e=>{e.stopPropagation();setSelectedJoints(prev=>{
@@ -1514,7 +1564,7 @@ export default function RobotViewer(){
 
           <button className="rb" style={{padding:"8px 16px",margin:"8px 20px 4px",background:`${C.danger}22`,border:`1px solid ${C.danger}44`,borderRadius:6,color:C.danger,fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",textAlign:"center"}} onClick={resetJoints}>{T.resetJoints}</button>
           <button className="rb" style={{padding:"8px 16px",margin:"0 20px 10px",background:`${C.accent}22`,border:`1px solid ${C.accent}44`,borderRadius:6,color:C.accent,fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",textAlign:"center"}}
-            onClick={()=>{if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);offsetGroupRef.current=null;worldGroupRef.current=null;robotGroupRef.current=null;jointObjRef.current={};linkObjRef.current={};comRef.current=[];inertiaRef.current=[];axisRef.current=[];setRobot(null);setJointVals({});setFiles([]);setLinkOpacities({});setLinkColors({});lookTarget.current.set(0,0.3,0);camAngle.current={theta:Math.PI/4,phi:Math.PI/3,radius:2};updateCam();}}>{T.unload}</button>
+            onClick={()=>{if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);offsetGroupRef.current=null;worldGroupRef.current=null;robotGroupRef.current=null;jointObjRef.current={};linkObjRef.current={};comRef.current=[];inertiaRef.current=[];axisRef.current=[];jointLabelRef.current=[];setJointLabelMap([]);setHighlightedJointLabel(null);setRobot(null);setJointVals({});setFiles([]);setLinkOpacities({});setLinkColors({});lookTarget.current.set(0,0.3,0);camAngle.current={theta:Math.PI/4,phi:Math.PI/3,radius:2};updateCam();}}>{T.unload}</button>
         </>)}
       </div>
 
