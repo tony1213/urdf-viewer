@@ -1187,7 +1187,7 @@ export default function RobotViewer(){
           {hasInertial&&<TBtn active={showInertia} onClick={()=>setShowInertia(!showInertia)} title={T.inertia} color="#8844ff">
             <svg width="18" height="18" viewBox="0 0 18 18"><ellipse cx="9" cy="9" rx="7" ry="4" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/><ellipse cx="9" cy="9" rx="4" ry="7" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/></svg>
           </TBtn>}
-          {robot&&jointLabelMap.length>0&&<TBtn active={showJointLabels} onClick={()=>setShowJointLabels(v=>!v)} title={T.jointLabels} color="#00e5ff">
+          {robot&&jointLabelMap.length>0&&<TBtn active={showJointLabels} onClick={()=>{setShowJointLabels(v=>{if(v)setHighlightedJointLabel(null);return!v;});}} title={T.jointLabels} color="#00e5ff">
             <svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="1.5"/><text x="9" y="13" textAnchor="middle" fontSize="9" fontWeight="bold" fill="currentColor" fontFamily="monospace">#</text></svg>
           </TBtn>}
           {showJointLabels&&jointLabelMap.length>0&&(
