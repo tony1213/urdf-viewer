@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
 import GaitPanel from "./gait/GaitPanel"; // ─── GAIT ───
+import ExpressionPanel from "./expression/ExpressionPanel"; // ─── EXPRESSION ───
 
 // ─── STL ─────────────────────────────────────────────────────
 function parseSTLBin(buf){const dv=new DataView(buf),tri=dv.getUint32(80,true),v=new Float32Array(tri*9),n=new Float32Array(tri*9);let o=84;for(let i=0;i<tri;i++){const nx=dv.getFloat32(o,true);o+=4;const ny=dv.getFloat32(o,true);o+=4;const nz=dv.getFloat32(o,true);o+=4;for(let j=0;j<3;j++){const x=i*9+j*3;v[x]=dv.getFloat32(o,true);o+=4;v[x+1]=dv.getFloat32(o,true);o+=4;v[x+2]=dv.getFloat32(o,true);o+=4;n[x]=nx;n[x+1]=ny;n[x+2]=nz;}o+=2;}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(v,3));g.setAttribute("normal",new THREE.BufferAttribute(n,3));return g;}
@@ -1152,6 +1153,9 @@ export default function RobotViewer(){
 
         {/* ─── GAIT: floating gait control panel ─── */}
         {robot&&<GaitPanel jointObjs={jointObjRef.current} updateJoint={updateJointSilent} onSync={gaitSync} accent={C.accent} lang={lang} C={C}/>}
+
+        {/* ─── EXPRESSION: floating head expression panel ─── */}
+        {robot&&<ExpressionPanel jointObjs={jointObjRef.current} updateJoint={updateJointSilent} onSync={gaitSync} accent={"#a855f7"} lang={lang} C={C}/>}
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
