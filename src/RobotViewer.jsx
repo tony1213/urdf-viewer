@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
 import GaitPanel from "./gait/GaitPanel"; // ─── GAIT ───
 import ExpressionPanel from "./expression/ExpressionPanel"; // ─── EXPRESSION ───
+import { detectCapabilities } from "./capabilities"; // ─── CAPABILITY GATING ───
 
 // ─── STL ─────────────────────────────────────────────────────
 function parseSTLBin(buf){const dv=new DataView(buf),tri=dv.getUint32(80,true),v=new Float32Array(tri*9),n=new Float32Array(tri*9);let o=84;for(let i=0;i<tri;i++){const nx=dv.getFloat32(o,true);o+=4;const ny=dv.getFloat32(o,true);o+=4;const nz=dv.getFloat32(o,true);o+=4;for(let j=0;j<3;j++){const x=i*9+j*3;v[x]=dv.getFloat32(o,true);o+=4;v[x+1]=dv.getFloat32(o,true);o+=4;v[x+2]=dv.getFloat32(o,true);o+=4;n[x]=nx;n[x+1]=ny;n[x+2]=nz;}o+=2;}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(v,3));g.setAttribute("normal",new THREE.BufferAttribute(n,3));return g;}
@@ -306,6 +307,7 @@ export default function RobotViewer(){
   const[hoverInfo,setHoverInfo]=useState(null); // {linkName, x, y}
 
   const[robot,setRobot]=useState(null);
+  const caps=robot?detectCapabilities(robot):{gait:false,face:false}; // ─── CAPABILITY GATING ───
   const[jointVals,setJointVals]=useState({});
   const[dragging,setDragging]=useState(false);
   const[axes,setAxes]=useState(true);
@@ -1151,11 +1153,11 @@ export default function RobotViewer(){
             (hoverInfo&&robot&&Object.values(robot.joints).find(j=>j.child===hoverInfo.linkName&&j.type!=="fixed"))?"ew-resize":"grab",
           background:darkMode?"#0a0e17":"#f0f4f8"}} onClick={measureMode?handleMeasureClick:undefined} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;if(linkDragRef.current){linkDragRef.current=null;clearDragAngle();}highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
 
-        {/* ─── GAIT: floating gait control panel ─── */}
-        {robot&&<GaitPanel jointObjs={jointObjRef.current} updateJoint={updateJointSilent} onSync={gaitSync} accent={C.accent} lang={lang} C={C}/>}
+        {/* ─── GAIT: floating gait control panel (only if robot has movable hip+knee+ankle on both legs) ─── */}
+        {robot&&caps.gait&&<GaitPanel jointObjs={jointObjRef.current} updateJoint={updateJointSilent} onSync={gaitSync} accent={C.accent} lang={lang} C={C}/>}
 
-        {/* ─── EXPRESSION: floating head expression panel ─── */}
-        {robot&&<ExpressionPanel jointObjs={jointObjRef.current} updateJoint={updateJointSilent} onSync={gaitSync} accent={"#a855f7"} lang={lang} C={C}/>}
+        {/* ─── EXPRESSION: floating head expression panel (only if robot has movable eye joints) ─── */}
+        {robot&&caps.face&&<ExpressionPanel jointObjs={jointObjRef.current} updateJoint={updateJointSilent} onSync={gaitSync} accent={"#a855f7"} lang={lang} C={C}/>}
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
