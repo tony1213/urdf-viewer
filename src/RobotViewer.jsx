@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
+import GaitPanel from "./gait/GaitPanel"; // ─── GAIT ───
 
 // ─── STL ─────────────────────────────────────────────────────
 function parseSTLBin(buf){const dv=new DataView(buf),tri=dv.getUint32(80,true),v=new Float32Array(tri*9),n=new Float32Array(tri*9);let o=84;for(let i=0;i<tri;i++){const nx=dv.getFloat32(o,true);o+=4;const ny=dv.getFloat32(o,true);o+=4;const nz=dv.getFloat32(o,true);o+=4;for(let j=0;j<3;j++){const x=i*9+j*3;v[x]=dv.getFloat32(o,true);o+=4;v[x+1]=dv.getFloat32(o,true);o+=4;v[x+2]=dv.getFloat32(o,true);o+=4;n[x]=nx;n[x+1]=ny;n[x+2]=nz;}o+=2;}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(v,3));g.setAttribute("normal",new THREE.BufferAttribute(n,3));return g;}
@@ -908,6 +909,16 @@ export default function RobotViewer(){
     setJointVals(p=>({...p,[name]:val}));},[]);
   const resetJoints=useCallback(()=>{for(const n of Object.keys(jointObjRef.current))updateJoint(n,0);},[updateJoint]);
 
+  // ─── GAIT: silent Three.js-only update (no setState) for RAF animation ───
+  const updateJointSilent=useCallback((name,val)=>{const o=jointObjRef.current[name];if(!o)return;const{axis,jointType,initQuat}=o.userData;o.userData.value=val;
+    if(jointType==="revolute"||jointType==="continuous"){
+      const jointRot=new THREE.Quaternion().setFromAxisAngle(axis,val);
+      o.quaternion.copy(initQuat).multiply(jointRot);
+    }else if(jointType==="prismatic"){if(!o.userData.op)o.userData.op=o.position.clone();o.position.copy(o.userData.op).addScaledVector(axis,val);}
+  },[]);
+  // ─── GAIT: throttled React state sync (engine calls this ~every 120ms) ───
+  const gaitSync=useCallback((valsObj)=>{if(valsObj&&Object.keys(valsObj).length)setJointVals(p=>({...p,...valsObj}));},[]);
+
   // Highlight / unhighlight link meshes on hover
   const highlightLink=useCallback((linkName)=>{
     if(linkName===hoveredLinkRef.current)return;
@@ -1138,6 +1149,9 @@ export default function RobotViewer(){
             linkDragRef.current?"ew-resize":
             (hoverInfo&&robot&&Object.values(robot.joints).find(j=>j.child===hoverInfo.linkName&&j.type!=="fixed"))?"ew-resize":"grab",
           background:darkMode?"#0a0e17":"#f0f4f8"}} onClick={measureMode?handleMeasureClick:undefined} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={e=>{mouseDown.current=false;midDown.current=false;if(linkDragRef.current){linkDragRef.current=null;clearDragAngle();}highlightLink(null);setHoverInfo(null);}} onWheel={onWh} onContextMenu={e=>e.preventDefault()} onAuxClick={e=>e.preventDefault()}/>
+
+        {/* ─── GAIT: floating gait control panel ─── */}
+        {robot&&<GaitPanel jointObjs={jointObjRef.current} updateJoint={updateJointSilent} onSync={gaitSync} accent={C.accent} lang={lang} C={C}/>}
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
