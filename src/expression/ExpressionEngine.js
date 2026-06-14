@@ -61,6 +61,10 @@ export class ExpressionEngine {
       idle:  0.12,   // idle micro-motion amplitude (fraction of range)
       speed: 1.0,    // global time scale
       gain:  1.0,    // overall expression intensity multiplier
+      // ── liveliness ──
+      blink:    1.0, // blink frequency multiplier (0 = no blinking)
+      saccade:  1.0, // eye saccade activity multiplier (0 = steady gaze)
+      overshoot:1.0, // motion overshoot/spring intensity (0 = critically damped)
     };
 
     this.detected = null;        // { map: {channel:name}, count, ok }
@@ -77,6 +81,16 @@ export class ExpressionEngine {
     this.blending = false;
     this.current = 'neutral';
     this.idleOn = true;
+
+    // ── liveliness runtime state ──
+    // spring-smoothed actual output per channel (for overshoot/inertia)
+    this.sp  = this._zero();   // spring position
+    this.spv = this._zero();   // spring velocity
+    // gaze saccade: hold a target, jump to a new one occasionally
+    this.gaze = { pan: 0, tilt: 0, tPan: 0, tTilt: 0, next: 0 };
+    // blink: scheduled times + current blink phase
+    this.blink = { next: 0, t0: -1, dur: 0.12 }; // dur = full blink length (s)
+    this.seed = Math.random() * 1000;
   }
 
   _zero() { return { eyePan: 0, eyeTilt: 0, jaw: 0, yaw: 0, pitch: 0, roll: 0 }; }
@@ -137,29 +151,96 @@ export class ExpressionEngine {
     return true;
   }
 
+  // pseudo-random in [0,1) from a seed (deterministic, no global RNG churn)
+  _rnd(x) { const s = Math.sin(x * 12.9898 + this.seed) * 43758.5453; return s - Math.floor(s); }
+
   // ─── RAF frame ───
   _loop = () => {
     const now = performance.now() / 1000;
-    if (!this.t0) this.t0 = now;
+    if (!this.t0) { this.t0 = now; this.gaze.next = now + 1.2; this.blink.next = now + 2.0; }
+    const dt = Math.min(0.05, this._prev ? now - this._prev : 0.016);
+    this._prev = now;
     const t = (now - this.t0) * this.params.speed;
 
-    // 1) blend cur -> tgt
+    // 1) blend cur -> tgt (target setpoint), the spring below adds the life
     if (this.blending) {
       const k = ease((now - this.blendStart) / Math.max(0.05, this.params.blend));
       for (const c of Object.keys(this.cur)) this.cur[c] = lerp(this.from[c], this.tgt[c], k);
       if (k >= 1) this.blending = false;
     }
 
-    // 2) idle micro-motion layered on top (breathing + slow saccade)
-    const out = {};
+    // 2) build the raw target = expression setpoint * gain + idle layer
     const g = this.params.gain;
-    for (const c of Object.keys(this.cur)) out[c] = this.cur[c] * g;
-    if (this.idleOn && this.params.idle > 0) {
-      const a = this.params.idle;
-      out.pitch   += a * 0.30 * Math.sin(t * 0.9);
-      out.eyePan  += a * 0.45 * Math.sin(t * 0.37 + 1.3);
-      out.eyeTilt += a * 0.25 * Math.sin(t * 0.53);
-      out.roll    += a * 0.15 * Math.sin(t * 0.21);
+    const raw = {};
+    for (const c of Object.keys(this.cur)) raw[c] = this.cur[c] * g;
+
+    if (this.idleOn) {
+      // 2a) irregular breathing (sine + slow drift + occasional deeper breath)
+      if (this.params.idle > 0) {
+        const a = this.params.idle;
+        const breathRate = 0.85 + 0.15 * Math.sin(t * 0.11);          // varying rate
+        const deep = 1 + 0.4 * this._rnd(Math.floor(t * 0.25));        // occasional deep breath
+        raw.pitch += a * 0.30 * deep * Math.sin(t * breathRate);
+        raw.roll  += a * 0.12 * Math.sin(t * 0.19 + 0.7);
+      }
+
+      // 2b) gaze SACCADE: hold a fixation, jump to a new target abruptly
+      if (this.params.saccade > 0) {
+        if (now >= this.gaze.next) {
+          // pick a new fixation point (biased toward center)
+          const r = () => (this._rnd(now * 7.1 + this.gaze.next) - 0.5) * 1.6;
+          this.gaze.tPan  = Math.max(-0.9, Math.min(0.9, r()));
+          this.gaze.tTilt = Math.max(-0.7, Math.min(0.7, r() * 0.7));
+          // next saccade in 0.4–2.2 s (humans saccade ~3×/s when scanning, slower at rest)
+          this.gaze.next = now + 0.4 + 1.8 * this._rnd(now * 3.3);
+        }
+        // saccades are FAST: snap ~90% of the way each frame (≈30–50ms move)
+        const snap = 1 - Math.pow(0.0001, dt); // ≈0.7+ per frame at 60fps
+        this.gaze.pan  += (this.gaze.tPan  - this.gaze.pan)  * snap;
+        this.gaze.tilt += (this.gaze.tTilt - this.gaze.tilt) * snap;
+        const sa = 0.55 * this.params.saccade;
+        raw.eyePan  += sa * this.gaze.pan;
+        raw.eyeTilt += sa * this.gaze.tilt;
+      }
+    }
+
+    // 3) spring smoothing → inertia + overshoot (the "alive" feel)
+    // critically-damped baseline, then dial UNDER-damping via overshoot param
+    const out = {};
+    const stiff = 180;                                  // spring stiffness
+    const ov = this.params.overshoot;
+    const damp = 2 * Math.sqrt(stiff) * (1 - 0.45 * Math.min(1, ov)); // <1 ratio = overshoot
+    for (const c of Object.keys(raw)) {
+      // jaw stays snappy (talking), eyes already saccade-fast: spring the head mostly
+      const useSpring = (c === 'pitch' || c === 'roll' || c === 'yaw');
+      if (useSpring && ov > 0) {
+        const a = stiff * (raw[c] - this.sp[c]) - damp * this.spv[c];
+        this.spv[c] += a * dt;
+        this.sp[c]  += this.spv[c] * dt;
+        out[c] = this.sp[c];
+      } else {
+        this.sp[c] = raw[c]; this.spv[c] = 0;
+        out[c] = raw[c];
+      }
+    }
+
+    // 4) BLINK: brief eyelid-substitute — snap eyes down+up quickly.
+    // (no eyelid joint, so we use a fast eyeTilt dip as the visual blink cue)
+    if (this.idleOn && this.params.blink > 0) {
+      if (this.blink.t0 < 0 && now >= this.blink.next) {
+        this.blink.t0 = now;
+        // next blink in 2–6 s, scaled by freq param (humans ~ every 3–5s)
+        this.blink.next = now + (2 + 4 * this._rnd(now * 1.7)) / this.params.blink;
+      }
+      if (this.blink.t0 >= 0) {
+        const bt = (now - this.blink.t0) / this.blink.dur;
+        if (bt >= 1) { this.blink.t0 = -1; }
+        else {
+          // down-then-up pulse: sin over [0,π] peaks mid-blink
+          const dip = Math.sin(bt * Math.PI);
+          out.eyeTilt -= 0.9 * dip;   // drive eyes down hard, briefly
+        }
+      }
     }
 
     // 3) write channels

@@ -31,6 +31,9 @@ const PARAM_SLIDERS = [
   { key: 'idle',  label: { zh: '微动幅度', en: 'Idle amp' },  min: 0.0,  max: 0.3, step: 0.01 },
   { key: 'gain',  label: { zh: '强度 ×',   en: 'Intensity ×' }, min: 0.3, max: 1.5, step: 0.05 },
   { key: 'speed', label: { zh: '速度 ×',   en: 'Speed ×' },   min: 0.3,  max: 2.0, step: 0.1 },
+  { key: 'blink',     label: { zh: '眨眼频率', en: 'Blink' },     min: 0.0, max: 2.0, step: 0.1 },
+  { key: 'saccade',   label: { zh: '眼动活跃', en: 'Saccade' },   min: 0.0, max: 2.0, step: 0.1 },
+  { key: 'overshoot', label: { zh: '惯性过冲', en: 'Overshoot' }, min: 0.0, max: 1.5, step: 0.1 },
 ];
 
 export default function ExpressionPanel({
@@ -45,7 +48,7 @@ export default function ExpressionPanel({
   const [collapsed, setCollapsed] = useState(false);
   const [idleOn, setIdleOn] = useState(true);
   const [chan, setChan] = useState({ eyePan: 0, eyeTilt: 0, jaw: 0, yaw: 0, pitch: 0, roll: 0 });
-  const [params, setParams] = useState({ blend: 0.45, idle: 0.12, gain: 1.0, speed: 1.0 });
+  const [params, setParams] = useState({ blend: 0.45, idle: 0.12, gain: 1.0, speed: 1.0, blink: 1.0, saccade: 1.0, overshoot: 1.0 });
 
   // sync callback: update slider readback from engine's live channels
   const sync = useRef((acc) => {
