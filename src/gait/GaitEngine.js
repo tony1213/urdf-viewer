@@ -17,13 +17,14 @@
  * avoid setState storms.
  */
 
-// ─── Joint name patterns (case-insensitive, matches Unitree H1 + generic) ───
+// ─── Joint name patterns (case-insensitive, matches Unitree H1/G1 + generic) ───
 const PAT = {
   hip_pitch:      /hip[_-]?pitch/i,
   hip_roll:       /hip[_-]?roll/i,
   hip_yaw:        /hip[_-]?yaw/i,
   knee:           /knee/i,
-  ankle_pitch:    /ankle([_-]?pitch)?/i,   // H1 ankle has only pitch
+  ankle_roll:     /ankle[_-]?roll/i,        // G1 has ankle_roll (test FIRST, more specific)
+  ankle_pitch:    /ankle([_-]?pitch)?/i,    // H1: bare "ankle"; G1: "ankle_pitch"
   shoulder_pitch: /shoulder[_-]?pitch/i,
 };
 
@@ -54,6 +55,7 @@ export class GaitEngine {
       sway: 0.05,         // rad hip_roll lateral amplitude
       armSwing: 0.25,     // rad shoulder_pitch antiphase amplitude
       ankleGain: 0.65,    // partial foot-flat factor (avoids H1 ankle saturation)
+      ankleRollGain: 0.5, // 6-DOF leg: foot lateral leveling vs hip_roll (G1)
       speed: 1.0,         // playback rate multiplier
     };
 
@@ -63,6 +65,7 @@ export class GaitEngine {
       hip_pitch: -1,   // H1 hip_pitch fwd convention (validated offline)
       knee:      +1,
       ankle:     +1,
+      ankle_roll:+1,
       hip_roll:  +1,
       shoulder:  +1,
     };
@@ -82,8 +85,8 @@ export class GaitEngine {
   // ─── Auto-detect leg/arm joints and read geometry from URDF ───
   detect() {
     const d = {
-      left:  { hip_pitch: null, hip_roll: null, hip_yaw: null, knee: null, ankle: null, shoulder: null },
-      right: { hip_pitch: null, hip_roll: null, hip_yaw: null, knee: null, ankle: null, shoulder: null },
+      left:  { hip_pitch: null, hip_roll: null, hip_yaw: null, knee: null, ankle: null, ankle_roll: null, shoulder: null },
+      right: { hip_pitch: null, hip_roll: null, hip_yaw: null, knee: null, ankle: null, ankle_roll: null, shoulder: null },
     };
     for (const name of Object.keys(this.jointObjs)) {
       const o = this.jointObjs[name];
@@ -94,15 +97,24 @@ export class GaitEngine {
       else if (PAT.hip_roll.test(name))        d[s].hip_roll = name;
       else if (PAT.hip_yaw.test(name))         d[s].hip_yaw = name;
       else if (PAT.knee.test(name))            d[s].knee = name;
+      else if (PAT.ankle_roll.test(name))      d[s].ankle_roll = name;   // check roll BEFORE pitch
       else if (PAT.ankle_pitch.test(name))     d[s].ankle = name;
       else if (PAT.shoulder_pitch.test(name))  d[s].shoulder = name;
     }
-    // try to read thigh/calf length from joint origins (knee & ankle z-offset)
+    // try to read thigh/calf length from joint origins (full 3D distance, not just z)
+    // thigh = |knee origin|, calf = |ankle_pitch origin| relative to their parent links
+    const vlen = (p) => {
+      if (!p) return 0;
+      const x = p.x || 0, y = p.y || 0, z = p.z || 0;
+      return Math.sqrt(x * x + y * y + z * z);
+    };
     try {
       const kneeObj = this.jointObjs[d.left.knee];
       const ankObj  = this.jointObjs[d.left.ankle];
-      if (kneeObj && kneeObj.position) this.L1 = Math.abs(kneeObj.position.z) || this.L1;
-      if (ankObj  && ankObj.position)  this.L2 = Math.abs(ankObj.position.z)  || this.L2;
+      const l1 = vlen(kneeObj && kneeObj.position);
+      const l2 = vlen(ankObj  && ankObj.position);
+      if (l1 > 0.01) this.L1 = l1;   // ignore near-zero (wrong joint)
+      if (l2 > 0.01) this.L2 = l2;
     } catch (e) { /* keep defaults */ }
 
     this.detected = d;
@@ -180,6 +192,11 @@ export class GaitEngine {
       r = this._apply(d.knee,      this.SIGN.knee * knee);          if (r[0]) acc[r[0]] = r[1];
       r = this._apply(d.ankle,     this.SIGN.ankle * ankle);        if (r[0]) acc[r[0]] = r[1];
       r = this._apply(d.hip_roll,  this.SIGN.hip_roll * roll);      if (r[0]) acc[r[0]] = r[1];
+      // 6-DOF leg (G1): level foot laterally against hip_roll tilt
+      if (d.ankle_roll) {
+        r = this._apply(d.ankle_roll, this.SIGN.ankle_roll * (-P.ankleRollGain * roll));
+        if (r[0]) acc[r[0]] = r[1];
+      }
       if (d.hip_yaw) { r = this._apply(d.hip_yaw, 0); if (r[0]) acc[r[0]] = r[1]; }
     }
 
@@ -224,7 +241,7 @@ export class GaitEngine {
     this.stop();
     if (!this.detected) return;
     const acc = {};
-    const all = ['hip_pitch', 'hip_roll', 'hip_yaw', 'knee', 'ankle', 'shoulder'];
+    const all = ['hip_pitch', 'hip_roll', 'hip_yaw', 'knee', 'ankle', 'ankle_roll', 'shoulder'];
     for (const s of ['left', 'right'])
       for (const k of all) {
         const nm = this.detected[s][k];

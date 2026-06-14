@@ -56,6 +56,16 @@ export default function GaitPanel({ jointObjs, updateJoint, onSync, accent = '#f
       const det = e.detect();
       setInfo(det);
       if (det.legJointCount === 0) return; // nothing to drive
+      // auto-fit standing height to detected leg length (G1 legs are shorter than H1)
+      const legMax = det.L1 + det.L2;
+      const fitSquat = Math.max(0.30, Math.min(0.79, legMax * 0.85));
+      e.setParam('squat', fitSquat);
+      // scale stride/lift to leg size too
+      const fitStride = Math.max(0.08, Math.min(0.25, legMax * 0.30));
+      const fitLift = Math.max(0.03, Math.min(0.08, legMax * 0.08));
+      e.setParam('stride', fitStride);
+      e.setParam('lift', fitLift);
+      setVals((p) => ({ ...p, squat: +fitSquat.toFixed(2), stride: +fitStride.toFixed(2), lift: +fitLift.toFixed(3) }));
       e.start();
       setRunning(true);
     }
