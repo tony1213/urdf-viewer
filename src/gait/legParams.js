@@ -33,6 +33,27 @@ function sideOf(name) {
 
 // jointObjs: jointObjRef.current  → { name: Object3D(with userData) }
 // Returns null if the robot doesn't have a drivable pair of legs.
+// Lightweight, side-effect-free gate: does this robot have a drivable pair of
+// legs? Pure name inspection — does NOT move/zero any joint, so it is safe to
+// call on every render (unlike extractLegParams, which probes joint directions
+// by applying test angles and must only run inside the gait panel).
+export function hasCompleteLegs(jointObjs) {
+  if (!jointObjs) return false;
+  const names = Object.keys(jointObjs);
+  const movable = (n) => MOVABLE.has((jointObjs[n].userData?.jointType) || "");
+  const sideReady = (s) => {
+    const has = { hip_pitch: false, knee: false, ankle_pitch: false };
+    for (const n of names) {
+      if (!movable(n) || sideOf(n) !== s) continue;
+      for (const role of ["hip_pitch", "knee", "ankle_pitch"]) {
+        if (ROLE_PATTERNS[role].test(n)) has[role] = true;
+      }
+    }
+    return has.hip_pitch && has.knee && has.ankle_pitch;
+  };
+  return sideReady("l") && sideReady("r");
+}
+
 export function extractLegParams(jointObjs) {
   if (!jointObjs) return null;
   const names = Object.keys(jointObjs);
@@ -117,6 +138,11 @@ export function extractLegParams(jointObjs) {
     const o = jointObjs[name]; const u = o.userData;
     o.quaternion.copy(u.initQuat).multiply(new THREE.Quaternion().setFromAxisAngle(u.axis, v));
   };
+  const restoreAngle = (name) => {
+    const o = jointObjs[name]; const u = o.userData;
+    const v = snap[name] || 0;
+    if (u.initQuat && u.axis) o.quaternion.copy(u.initQuat).multiply(new THREE.Quaternion().setFromAxisAngle(u.axis, v));
+  };
   const probeSide = (s) => {
     const J = legs[s];
     const restAnkle = wpName(J.ankle_pitch);
@@ -124,7 +150,7 @@ export function extractLegParams(jointObjs) {
     // hip_pitch: +δ should move the foot forward (+world-X-ish in sagittal plane)
     setAngle(J.hip_pitch, 0.3); root.updateMatrixWorld(true);
     const aHip = wpName(J.ankle_pitch);
-    setAngle(J.hip_pitch, 0); root.updateMatrixWorld(true);
+    restoreAngle(J.hip_pitch); root.updateMatrixWorld(true);
     // pick the horizontal axis with the larger swing as "forward" proxy
     const dF = Math.abs(aHip.x - restAnkle.x) >= Math.abs(aHip.z - restAnkle.z)
       ? (aHip.x - restAnkle.x) : (aHip.z - restAnkle.z);
@@ -133,7 +159,7 @@ export function extractLegParams(jointObjs) {
     const restD = hipPos.distanceTo(restAnkle);
     setAngle(J.knee, 0.3); root.updateMatrixWorld(true);
     const kneeD = wpName(J.hip_pitch).distanceTo(wpName(J.ankle_pitch));
-    setAngle(J.knee, 0); root.updateMatrixWorld(true);
+    restoreAngle(J.knee); root.updateMatrixWorld(true);
     const kneeSign = kneeD < restD ? 1 : -1;
     // ankle: the foot must end up flat. The IK supplies an ankle magnitude of
     // (knee - hip); the correct sign is robot-specific. Determine it by closed
@@ -155,15 +181,13 @@ export function extractLegParams(jointObjs) {
         setAngle(J.knee, kneeSign * kneeMag);
         setAngle(J.ankle_pitch, aSign * ankMag);
         root.updateMatrixWorld(true);
-        // foot sole normal ≈ foot link local +Z (or -Z); measure how vertical the
-        // link's forward (local X) lies — flat sole ⇒ forward is horizontal.
         const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(jointObjs[footName].getWorldQuaternion(new THREE.Quaternion()));
         return Math.abs(fwd.z); // smaller = more horizontal = flatter
       };
       const vPos = verticality(1), vNeg = verticality(-1);
       ankleSign = vPos <= vNeg ? 1 : -1;
-      // restore
-      setAngle(J.hip_pitch, 0); setAngle(J.knee, 0); setAngle(J.ankle_pitch, 0);
+      // restore to the user's pose (not zero)
+      restoreAngle(J.hip_pitch); restoreAngle(J.knee); restoreAngle(J.ankle_pitch);
       root.updateMatrixWorld(true);
     }
     return { hipSign, kneeSign, ankleSign };

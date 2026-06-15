@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
 import GaitPanel from "./gait/GaitPanel";
-import { extractLegParams } from "./gait/legParams";
+import { hasCompleteLegs } from "./gait/legParams";
 
 // ─── STL ─────────────────────────────────────────────────────
 function parseSTLBin(buf){const dv=new DataView(buf),tri=dv.getUint32(80,true),v=new Float32Array(tri*9),n=new Float32Array(tri*9);let o=84;for(let i=0;i<tri;i++){const nx=dv.getFloat32(o,true);o+=4;const ny=dv.getFloat32(o,true);o+=4;const nz=dv.getFloat32(o,true);o+=4;for(let j=0;j<3;j++){const x=i*9+j*3;v[x]=dv.getFloat32(o,true);o+=4;v[x+1]=dv.getFloat32(o,true);o+=4;v[x+2]=dv.getFloat32(o,true);o+=4;n[x]=nx;n[x+1]=ny;n[x+2]=nz;}o+=2;}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(v,3));g.setAttribute("normal",new THREE.BufferAttribute(n,3));return g;}
@@ -307,7 +307,7 @@ export default function RobotViewer(){
 
   const[robot,setRobot]=useState(null);
   const[gaitOpen,setGaitOpen]=useState(false); // ─── GAIT ───
-  const hasLegs=robot?!!extractLegParams(jointObjRef.current):false; // 门控：有完整双腿才显示步态
+  const hasLegs=robot?hasCompleteLegs(jointObjRef.current):false; // 门控：轻量只读检测，不破坏关节状态
   useEffect(()=>{if(!robot)setGaitOpen(false);},[robot]);
   const[jointVals,setJointVals]=useState({});
   const[dragging,setDragging]=useState(false);
