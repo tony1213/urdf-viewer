@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
+import GaitPanel from "./gait/GaitPanel";
+import { extractLegParams } from "./gait/legParams";
 
 // ─── STL ─────────────────────────────────────────────────────
 function parseSTLBin(buf){const dv=new DataView(buf),tri=dv.getUint32(80,true),v=new Float32Array(tri*9),n=new Float32Array(tri*9);let o=84;for(let i=0;i<tri;i++){const nx=dv.getFloat32(o,true);o+=4;const ny=dv.getFloat32(o,true);o+=4;const nz=dv.getFloat32(o,true);o+=4;for(let j=0;j<3;j++){const x=i*9+j*3;v[x]=dv.getFloat32(o,true);o+=4;v[x+1]=dv.getFloat32(o,true);o+=4;v[x+2]=dv.getFloat32(o,true);o+=4;n[x]=nx;n[x+1]=ny;n[x+2]=nz;}o+=2;}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(v,3));g.setAttribute("normal",new THREE.BufferAttribute(n,3));return g;}
@@ -304,6 +306,9 @@ export default function RobotViewer(){
   const[hoverInfo,setHoverInfo]=useState(null); // {linkName, x, y}
 
   const[robot,setRobot]=useState(null);
+  const[gaitOpen,setGaitOpen]=useState(false); // ─── GAIT ───
+  const hasLegs=robot?!!extractLegParams(jointObjRef.current):false; // 门控：有完整双腿才显示步态
+  useEffect(()=>{if(!robot)setGaitOpen(false);},[robot]);
   const[jointVals,setJointVals]=useState({});
   const[dragging,setDragging]=useState(false);
   const[axes,setAxes]=useState(true);
@@ -1174,6 +1179,12 @@ export default function RobotViewer(){
               <line x1="12" y1="10" x2="12" y2="7" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
             </svg>
           </TBtn>}
+          {robot&&hasLegs&&<TBtn active={gaitOpen} onClick={()=>setGaitOpen(v=>!v)} title={lang==="zh"?"步态生成":"Gait Generator"} color="#22c55e">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <circle cx="10" cy="2.8" r="1.7" fill="currentColor"/>
+              <path d="M9.8 5.2 L9.2 9 L6.2 14.8 M9.2 9 L11.8 11.8 L12.1 15.4 M9.6 6.2 L6.6 8.4 M9.6 6.2 L12.7 7.8" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </TBtn>}
           <TBtn active={showJointAxes} onClick={()=>setShowJointAxes(!showJointAxes)} title={T.jointAxes} color="#ffaa00">
             <svg width="18" height="18" viewBox="0 0 18 18">
               <line x1="4" y1="14" x2="16" y2="14" stroke="#ff4444" strokeWidth="2" strokeLinecap="round"/>
@@ -1207,6 +1218,9 @@ export default function RobotViewer(){
             </div>
           )}
         </div>
+
+        {/* ─── GAIT: gait generator panel (only if robot has complete legs) ─── */}
+        {gaitOpen&&robot&&hasLegs&&<GaitPanel jointObjs={jointObjRef.current} onSync={(vals)=>setJointVals(p=>({...p,...vals}))} lang={lang} C={C} robotKey={robot}/>}
 
         {/* Coord gizmo (top right of canvas) */}
         <div style={{position:"absolute",top:16,right:16,zIndex:20,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
