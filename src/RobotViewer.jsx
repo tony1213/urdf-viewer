@@ -355,7 +355,8 @@ export default function RobotViewer(){
   const tcpMeshRef=useRef(null); // the TCP sphere mesh in scene
   const tcpDragging=useRef(false);
   const tcpPlaneRef=useRef(null); // drag plane
-  const jointInputRefsMap=useRef({}); // name -> input DOM element, for sync
+  const jointInputRefsMap=useRef({}); // name -> number input DOM element, for sync
+  const jointSliderRefsMap=useRef({}); // name -> range slider DOM element, for imperative high-freq updates (gait playback) without re-render
   const resizingRef=useRef(false);
   const handleRef=useRef(null);
 
@@ -905,11 +906,32 @@ export default function RobotViewer(){
     }catch(e){setError(e.message);setLoading(false);}
   },[updateCam,applyCoord]);
 
+  // Imperatively sync a joint's slider + number box DOM to a value, WITHOUT any
+  // React state update. This mirrors how manual slider drags already update the
+  // number box (defaultValue + ref), and lets gait playback move all sliders at
+  // 60fps without re-rendering the 1600-line component (which causes flicker).
+  const syncJointDOM=useCallback((name,val)=>{
+    const o=jointObjRef.current[name];if(!o)return;
+    const{jointType}=o.userData;
+    const isPris=jointType==="prismatic";
+    const sl=jointSliderRefsMap.current[name];
+    if(sl&&document.activeElement!==sl)sl.value=String(val);
+    const inp=jointInputRefsMap.current[name];
+    if(inp&&document.activeElement!==inp){
+      const disp=(!isPris&&!useRadians)?+(val*(180/Math.PI)).toFixed(2):+val.toFixed(4);
+      inp.value=String(disp);
+    }
+  },[useRadians]);
+
   const updateJoint=useCallback((name,val)=>{const o=jointObjRef.current[name];if(!o)return;const{axis,jointType,initQuat}=o.userData;o.userData.value=val;
     if(jointType==="revolute"||jointType==="continuous"){
       const jointRot=new THREE.Quaternion().setFromAxisAngle(axis,val);
       o.quaternion.copy(initQuat).multiply(jointRot);
     }else if(jointType==="prismatic"){if(!o.userData.op)o.userData.op=o.position.clone();o.position.copy(o.userData.op).addScaledVector(axis,val);}
+    // keep the (uncontrolled) slider DOM in sync — defaultValue won't refresh on
+    // re-render, so update it imperatively here too (covers reset / programmatic set)
+    const sl=jointSliderRefsMap.current[name];
+    if(sl&&document.activeElement!==sl)sl.value=String(val);
     setJointVals(p=>({...p,[name]:val}));},[]);
   const resetJoints=useCallback(()=>{for(const n of Object.keys(jointObjRef.current))updateJoint(n,0);},[updateJoint]);
 
@@ -1220,7 +1242,7 @@ export default function RobotViewer(){
         </div>
 
         {/* ─── GAIT: gait generator panel (only if robot has complete legs) ─── */}
-        {gaitOpen&&robot&&hasLegs&&<GaitPanel jointObjs={jointObjRef.current} onSync={(vals)=>setJointVals(p=>({...p,...vals}))} lang={lang} C={C} robotKey={robot}/>}
+        {gaitOpen&&robot&&hasLegs&&<GaitPanel jointObjs={jointObjRef.current} onTick={(vals)=>{for(const n in vals)syncJointDOM(n,vals[n]);}} onCommit={(vals)=>setJointVals(p=>({...p,...vals}))} lang={lang} C={C} robotKey={robot}/>}
 
         {/* Coord gizmo (top right of canvas) */}
         <div style={{position:"absolute",top:16,right:16,zIndex:20,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
@@ -1488,7 +1510,9 @@ export default function RobotViewer(){
                           });}}>{name}</span>
                       </div>
                       <input type="range" style={{width:"100%",appearance:"none",WebkitAppearance:"none",height:4,borderRadius:2,background:C.border,outline:"none",cursor:"pointer",marginBottom:6}}
-                        min={lower} max={upper} step={0.001} value={value}
+                        ref={el=>{if(el)jointSliderRefsMap.current[name]=el;}}
+                        key={`${name}-slider-${useRadians}`}
+                        min={lower} max={upper} step={0.001} defaultValue={value}
                         onChange={e=>{
                           updateJoint(name,+e.target.value);
                           showDragAngle(name);

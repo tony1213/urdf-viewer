@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { extractLegParams } from "./legParams";
 import { GaitEngine } from "./GaitEngine";
 
-export default function GaitPanel({ jointObjs, onSync, lang, C, robotKey }) {
+export default function GaitPanel({ jointObjs, onTick, onCommit, lang, C, robotKey }) {
   const zh = lang === "zh";
   const engineRef = useRef(null);
   const [params, setParams] = useState(null);
@@ -19,7 +19,7 @@ export default function GaitPanel({ jointObjs, onSync, lang, C, robotKey }) {
     setParams(p);
     if (engineRef.current) { engineRef.current.stop(); engineRef.current = null; }
     if (p) {
-      const e = new GaitEngine({ jointObjs, params: p, onSync });
+      const e = new GaitEngine({ jointObjs, params: p, onTick, onCommit });
       engineRef.current = e;
       setCfg({ ...e.cfg });
     }

@@ -12,7 +12,7 @@
 //   → all joints clamped to the URDF limits from legParams.
 // Joints are driven by writing quaternions directly (initQuat·axisAngle, the
 // same formula as the viewer's updateJoint) and pushed to the sliders via a
-// throttled batched onSync — never per-joint setState.
+// onTick (high-freq, imperative DOM) + onCommit (once on stop, React state).
 import * as THREE from "three";
 
 // Per-leg joint directions are probed from the URDF in legParams (hip_pitch /
@@ -22,10 +22,11 @@ import * as THREE from "three";
 const ROLL_SIGN = { hipRoll: -1, ankleRoll: 1 };
 
 export class GaitEngine {
-  constructor({ jointObjs, params, onSync }) {
+  constructor({ jointObjs, params, onTick, onCommit }) {
     this.jointObjs = jointObjs;
     this.params = params;                 // from extractLegParams()
-    this.onSync = onSync || (() => {});
+    this.onTick = onTick || (() => {});      // high-freq: imperative DOM sync, no React re-render
+    this.onCommit = onCommit || (() => {});  // once on stop: commit final pose to React state
     // tunables (seed from URDF-derived suggestions; user can override live)
     this.cfg = {
       period: 1.1,
@@ -125,12 +126,12 @@ export class GaitEngine {
     const out = {};
     this._driveLeg("l", pL,  sway, out);
     this._driveLeg("r", pR, -sway, out);
-    // NOTE: deliberately do NOT call onSync here. The joints are already updated
-    // by writing quaternions directly above, and the viewer renders them via its
-    // own RAF loop. Calling setJointVals every frame would re-render the whole
-    // 1600-line viewer (all sliders + URDF tree) ~8×/s, stealing the main thread
-    // from the render loop and causing visible flicker. Sliders are synced once
-    // on start()/stop() instead — their live value during a walk isn't needed.
+    // Push every frame to onTick, which updates slider/number-box DOM imperatively
+    // (no setState). Joints themselves are already moved by writing quaternions
+    // above; the viewer's own RAF loop renders them. This keeps sliders tracking
+    // the gait live at 60fps WITHOUT re-rendering the 1600-line component — the
+    // re-render (all sliders + URDF tree, ~8×/s) was what caused the flicker.
+    this.onTick(out);
     if (typeof requestAnimationFrame !== "undefined") this.raf = requestAnimationFrame(this._tick);
   }
 
@@ -148,6 +149,7 @@ export class GaitEngine {
       if (J.ankle_roll) out[J.ankle_roll] = this._apply(J.ankle_roll, 0);
       if (J.hip_yaw)    out[J.hip_yaw]    = this._apply(J.hip_yaw, 0);
     }
-    this.onSync(out);
+    this.onTick(out);    // update DOM immediately
+    this.onCommit(out);  // commit final pose to React state (sliders' defaultValue baseline)
   }
 }
