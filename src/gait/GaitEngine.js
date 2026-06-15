@@ -15,10 +15,11 @@
 // throttled batched onSync — never per-joint setState.
 import * as THREE from "three";
 
-// Sign conventions: IK returns anatomical-positive (hip+ = thigh forward,
-// knee+ = flexion, ankle+ = dorsiflex). Flip a ±1 here if a robot walks
-// backwards / knee bends the wrong way — never touch the IK.
-const SIGN = { hipPitch: 1, knee: 1, anklePitch: 1, hipRoll: -1, ankleRoll: 1 };
+// Per-leg joint directions are probed from the URDF in legParams (hip_pitch /
+// knee can point either way depending on the robot's axis convention), so the
+// engine no longer carries a hardcoded sign table. Roll signs (lateral sway)
+// are still fixed: + sway leans toward the robot's left.
+const ROLL_SIGN = { hipRoll: -1, ankleRoll: 1 };
 
 export class GaitEngine {
   constructor({ jointObjs, params, onSync }) {
@@ -71,15 +72,21 @@ export class GaitEngine {
     return v;
   }
 
-  // 2-link analytic IK: foot at (x fwd+, z down>0 measured from hip) → angles (rad)
-  _ik(x, z) {
+  // 2-link analytic IK in the sagittal plane.
+  // Foot target is (x forward, h below the hip). Returns joint angles (rad) in
+  // anatomical-positive convention: hipPitch+ = thigh forward (from vertical),
+  // knee+ = flexion, anklePitch+ = dorsiflexion (keeps the sole horizontal).
+  // Verified: x=0 puts the foot exactly under the hip (no drift), for any L1≠L2.
+  _ik(x, h) {
     const L1 = this.params.L1, L2 = this.params.L2;
-    let d = Math.hypot(x, z); d = Math.min(d, L1 + L2 - 1e-4);
-    const ckn = Math.max(-1, Math.min(1, (L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2)));
-    const knee = Math.PI - Math.acos(ckn);
-    const cb  = Math.max(-1, Math.min(1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d)));
-    const hip = Math.atan2(x, z) + Math.acos(cb);
-    return [hip, knee, knee - hip];        // ankle = knee - hip → sole stays flat
+    let d = Math.hypot(x, h); d = Math.min(d, L1 + L2 - 1e-4);
+    const ckn  = Math.max(-1, Math.min(1, (L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2)));
+    const knee = Math.PI - Math.acos(ckn);                    // flexion amount
+    const cb   = Math.max(-1, Math.min(1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d)));
+    const beta = Math.acos(cb);                               // thigh vs hip→foot line
+    const hip  = Math.atan2(x, h) + beta;                     // thigh from vertical-down
+    const ankle = knee - hip;                                 // shank end ⟂ ground → flat sole
+    return [hip, knee, ankle];
   }
 
   // cycloid foot trajectory in hip frame; phase p∈[0,1)
@@ -97,13 +104,14 @@ export class GaitEngine {
 
   _driveLeg(side, phase, sway, out) {
     const J = this.params.joints[side];
+    const D = this.params.dirs[side];
     const [x, z] = this._foot(phase);
     const [hip, knee, ankle] = this._ik(x, z);
-    if (J.hip_pitch)  out[J.hip_pitch]  = this._apply(J.hip_pitch,  SIGN.hipPitch  * hip);
-    if (J.knee)       out[J.knee]       = this._apply(J.knee,       SIGN.knee      * knee);
-    if (J.ankle_pitch)out[J.ankle_pitch]= this._apply(J.ankle_pitch,SIGN.anklePitch* ankle);
-    if (J.hip_roll)   out[J.hip_roll]   = this._apply(J.hip_roll,   SIGN.hipRoll   * sway);
-    if (J.ankle_roll) out[J.ankle_roll] = this._apply(J.ankle_roll, SIGN.ankleRoll * sway);
+    if (J.hip_pitch)  out[J.hip_pitch]  = this._apply(J.hip_pitch,  D.hip   * hip);
+    if (J.knee)       out[J.knee]       = this._apply(J.knee,       D.knee  * knee);
+    if (J.ankle_pitch)out[J.ankle_pitch]= this._apply(J.ankle_pitch,D.ankle * ankle);
+    if (J.hip_roll)   out[J.hip_roll]   = this._apply(J.hip_roll,   ROLL_SIGN.hipRoll   * sway);
+    if (J.ankle_roll) out[J.ankle_roll] = this._apply(J.ankle_roll, ROLL_SIGN.ankleRoll * sway);
     if (J.hip_yaw)    out[J.hip_yaw]    = this._apply(J.hip_yaw, 0);
   }
 
@@ -127,9 +135,10 @@ export class GaitEngine {
     for (const side of ["l", "r"]) {
       const [hip, knee, ankle] = this._ik(0, this.cfg.squat);
       const J = this.params.joints[side];
-      if (J.hip_pitch)  out[J.hip_pitch]  = this._apply(J.hip_pitch,  SIGN.hipPitch  * hip);
-      if (J.knee)       out[J.knee]       = this._apply(J.knee,       SIGN.knee      * knee);
-      if (J.ankle_pitch)out[J.ankle_pitch]= this._apply(J.ankle_pitch,SIGN.anklePitch* ankle);
+      const D = this.params.dirs[side];
+      if (J.hip_pitch)  out[J.hip_pitch]  = this._apply(J.hip_pitch,  D.hip   * hip);
+      if (J.knee)       out[J.knee]       = this._apply(J.knee,       D.knee  * knee);
+      if (J.ankle_pitch)out[J.ankle_pitch]= this._apply(J.ankle_pitch,D.ankle * ankle);
       if (J.hip_roll)   out[J.hip_roll]   = this._apply(J.hip_roll, 0);
       if (J.ankle_roll) out[J.ankle_roll] = this._apply(J.ankle_roll, 0);
       if (J.hip_yaw)    out[J.hip_yaw]    = this._apply(J.hip_yaw, 0);

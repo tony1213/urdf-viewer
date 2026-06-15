@@ -85,8 +85,8 @@ export default function GaitPanel({ jointObjs, onSync, lang, C, robotKey }) {
       {slider("sway",   zh ? "侧摆 (rad)" : "Sway (rad)", 0, 0.25, 0.01, (v) => v.toFixed(2))}
       {slider("speed",  zh ? "速度 ×" : "Speed ×", 0.2, 2.0, 0.1, (v) => v.toFixed(1) + "×")}
       <div style={{ fontSize: 8.5, color: C.dim, lineHeight: 1.5, marginTop: 2 }}>
-        {zh ? "站高、步长、抬脚默认值均按 URDF 腿长自动生成。方向反了改 GaitEngine.js 的 SIGN。"
-            : "Squat / stride / lift default to the URDF leg length. Wrong direction? Flip SIGN in GaitEngine.js."}
+        {zh ? "站高、步长、抬脚默认按 URDF 腿长生成；关节方向（前摆/屈膝）自动探测，适配不同机器人。"
+            : "Squat / stride / lift default to URDF leg length; joint directions are auto-probed per robot."}
       </div>
     </Card>
   );

@@ -106,10 +106,79 @@ export function extractLegParams(jointObjs) {
   for (const role of Object.keys(ROLE_PATTERNS)) limits[role] = limit(role);
 
   const legMax = L1 + L2;                       // max hip-to-ankle reach
+
+  // —— auto-probe joint directions (robot-specific axis conventions) ——
+  // Different URDFs define hip_pitch +angle as either thigh-forward or
+  // thigh-backward. Rather than hardcode a SIGN table (which breaks the moment
+  // a robot flips a convention — e.g. Unitree G1 vs X1), measure it: nudge each
+  // pitch joint +δ in the rest pose and watch where the ankle moves.
+  const wpName = (name) => jointObjs[name].getWorldPosition(new THREE.Vector3());
+  const setAngle = (name, v) => {
+    const o = jointObjs[name]; const u = o.userData;
+    o.quaternion.copy(u.initQuat).multiply(new THREE.Quaternion().setFromAxisAngle(u.axis, v));
+  };
+  const probeSide = (s) => {
+    const J = legs[s];
+    const restAnkle = wpName(J.ankle_pitch);
+    const hipPos = wpName(J.hip_pitch);
+    // hip_pitch: +δ should move the foot forward (+world-X-ish in sagittal plane)
+    setAngle(J.hip_pitch, 0.3); root.updateMatrixWorld(true);
+    const aHip = wpName(J.ankle_pitch);
+    setAngle(J.hip_pitch, 0); root.updateMatrixWorld(true);
+    // pick the horizontal axis with the larger swing as "forward" proxy
+    const dF = Math.abs(aHip.x - restAnkle.x) >= Math.abs(aHip.z - restAnkle.z)
+      ? (aHip.x - restAnkle.x) : (aHip.z - restAnkle.z);
+    const hipSign = dF >= 0 ? 1 : -1;
+    // knee: +δ should shorten hip→ankle distance (flexion)
+    const restD = hipPos.distanceTo(restAnkle);
+    setAngle(J.knee, 0.3); root.updateMatrixWorld(true);
+    const kneeD = wpName(J.hip_pitch).distanceTo(wpName(J.ankle_pitch));
+    setAngle(J.knee, 0); root.updateMatrixWorld(true);
+    const kneeSign = kneeD < restD ? 1 : -1;
+    // ankle: the foot must end up flat. The IK supplies an ankle magnitude of
+    // (knee - hip); the correct sign is robot-specific. Determine it by closed
+    // loop: drive the leg to a standing pose with each candidate ankle sign and
+    // keep whichever makes the foot link's sole most horizontal.
+    let ankleSign = kneeSign;
+    if (J.ankle_pitch) {
+      const footName = J.ankle_roll || J.ankle_pitch;
+      // reproduce the standing IK angles (foot under hip) for this leg
+      const hh = legMax * 0.82;
+      let dd = Math.min(hh, L1 + L2 - 1e-4);
+      const ckn = Math.max(-1, Math.min(1, (L1 * L1 + L2 * L2 - dd * dd) / (2 * L1 * L2)));
+      const kneeMag = Math.PI - Math.acos(ckn);
+      const cbb = Math.max(-1, Math.min(1, (L1 * L1 + dd * dd - L2 * L2) / (2 * L1 * dd)));
+      const hipMag = Math.atan2(0, hh) + Math.acos(cbb);
+      const ankMag = kneeMag - hipMag;
+      const verticality = (aSign) => {
+        setAngle(J.hip_pitch, hipSign * hipMag);
+        setAngle(J.knee, kneeSign * kneeMag);
+        setAngle(J.ankle_pitch, aSign * ankMag);
+        root.updateMatrixWorld(true);
+        // foot sole normal ≈ foot link local +Z (or -Z); measure how vertical the
+        // link's forward (local X) lies — flat sole ⇒ forward is horizontal.
+        const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(jointObjs[footName].getWorldQuaternion(new THREE.Quaternion()));
+        return Math.abs(fwd.z); // smaller = more horizontal = flatter
+      };
+      const vPos = verticality(1), vNeg = verticality(-1);
+      ankleSign = vPos <= vNeg ? 1 : -1;
+      // restore
+      setAngle(J.hip_pitch, 0); setAngle(J.knee, 0); setAngle(J.ankle_pitch, 0);
+      root.updateMatrixWorld(true);
+    }
+    return { hipSign, kneeSign, ankleSign };
+  };
+  const pl = probeSide("l"), pr = probeSide("r");
+  const dirs = {
+    l: { hip: pl.hipSign, knee: pl.kneeSign, ankle: pl.ankleSign },
+    r: { hip: pr.hipSign, knee: pr.kneeSign, ankle: pr.ankleSign },
+  };
+
   return {
     joints: legs,                                // {l:{role:name}, r:{role:name}}
     L1, L2, legMax,
     limits,                                      // {role:{lower,upper}}
+    dirs,                                        // {l/r:{hip,knee,ankle}} probed signs
     hasHipRoll:  !!(legs.l.hip_roll  && legs.r.hip_roll),
     hasHipYaw:   !!(legs.l.hip_yaw   && legs.r.hip_yaw),
     hasAnkleRoll:!!(legs.l.ankle_roll&& legs.r.ankle_roll),
