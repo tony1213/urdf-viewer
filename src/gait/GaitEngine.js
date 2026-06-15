@@ -125,7 +125,12 @@ export class GaitEngine {
     const out = {};
     this._driveLeg("l", pL,  sway, out);
     this._driveLeg("r", pR, -sway, out);
-    if (now - this._lastSync > 120) { this._lastSync = now; this.onSync(out); }
+    // NOTE: deliberately do NOT call onSync here. The joints are already updated
+    // by writing quaternions directly above, and the viewer renders them via its
+    // own RAF loop. Calling setJointVals every frame would re-render the whole
+    // 1600-line viewer (all sliders + URDF tree) ~8×/s, stealing the main thread
+    // from the render loop and causing visible flicker. Sliders are synced once
+    // on start()/stop() instead — their live value during a walk isn't needed.
     if (typeof requestAnimationFrame !== "undefined") this.raf = requestAnimationFrame(this._tick);
   }
 
