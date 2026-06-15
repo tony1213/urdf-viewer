@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
 import GaitPanel from "./gait/GaitPanel";
 import { hasCompleteLegs } from "./gait/legParams";
+import FacePanel from "./gait/FacePanel";
+import { hasExpressionJoints } from "./gait/faceParams";
 
 // ─── STL ─────────────────────────────────────────────────────
 function parseSTLBin(buf){const dv=new DataView(buf),tri=dv.getUint32(80,true),v=new Float32Array(tri*9),n=new Float32Array(tri*9);let o=84;for(let i=0;i<tri;i++){const nx=dv.getFloat32(o,true);o+=4;const ny=dv.getFloat32(o,true);o+=4;const nz=dv.getFloat32(o,true);o+=4;for(let j=0;j<3;j++){const x=i*9+j*3;v[x]=dv.getFloat32(o,true);o+=4;v[x+1]=dv.getFloat32(o,true);o+=4;v[x+2]=dv.getFloat32(o,true);o+=4;n[x]=nx;n[x+1]=ny;n[x+2]=nz;}o+=2;}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(v,3));g.setAttribute("normal",new THREE.BufferAttribute(n,3));return g;}
@@ -307,8 +309,10 @@ export default function RobotViewer(){
 
   const[robot,setRobot]=useState(null);
   const[gaitOpen,setGaitOpen]=useState(false); // ─── GAIT ───
+  const[faceOpen,setFaceOpen]=useState(false); // ─── FACE ───
   const hasLegs=robot?hasCompleteLegs(jointObjRef.current):false; // 门控：轻量只读检测，不破坏关节状态
-  useEffect(()=>{if(!robot)setGaitOpen(false);},[robot]);
+  const hasFace=robot?hasExpressionJoints(jointObjRef.current):false; // 门控：有可动eye关节才显示表情
+  useEffect(()=>{if(!robot){setGaitOpen(false);setFaceOpen(false);}},[robot]);
   const[jointVals,setJointVals]=useState({});
   const[dragging,setDragging]=useState(false);
   const[axes,setAxes]=useState(true);
@@ -1201,10 +1205,18 @@ export default function RobotViewer(){
               <line x1="12" y1="10" x2="12" y2="7" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
             </svg>
           </TBtn>}
-          {robot&&hasLegs&&<TBtn active={gaitOpen} onClick={()=>setGaitOpen(v=>!v)} title={lang==="zh"?"步态生成":"Gait Generator"} color="#22c55e">
+          {robot&&hasLegs&&<TBtn active={gaitOpen} onClick={()=>{setGaitOpen(v=>!v);if(!gaitOpen)setFaceOpen(false);}} title={lang==="zh"?"步态生成":"Gait Generator"} color="#22c55e">
             <svg width="18" height="18" viewBox="0 0 18 18">
               <circle cx="10" cy="2.8" r="1.7" fill="currentColor"/>
               <path d="M9.8 5.2 L9.2 9 L6.2 14.8 M9.2 9 L11.8 11.8 L12.1 15.4 M9.6 6.2 L6.6 8.4 M9.6 6.2 L12.7 7.8" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </TBtn>}
+          {robot&&hasFace&&<TBtn active={faceOpen} onClick={()=>{setFaceOpen(v=>!v);if(!faceOpen)setGaitOpen(false);}} title={lang==="zh"?"人脸表情":"Face Expression"} color="#a855f7">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+              <circle cx="6.3" cy="7.3" r="1.1" fill="currentColor"/>
+              <circle cx="11.7" cy="7.3" r="1.1" fill="currentColor"/>
+              <path d="M5.5 11 Q9 13.6 12.5 11" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
             </svg>
           </TBtn>}
           <TBtn active={showJointAxes} onClick={()=>setShowJointAxes(!showJointAxes)} title={T.jointAxes} color="#ffaa00">
@@ -1243,6 +1255,7 @@ export default function RobotViewer(){
 
         {/* ─── GAIT: gait generator panel (only if robot has complete legs) ─── */}
         {gaitOpen&&robot&&hasLegs&&<GaitPanel jointObjs={jointObjRef.current} onTick={(vals)=>{for(const n in vals)syncJointDOM(n,vals[n]);}} onCommit={(vals)=>setJointVals(p=>({...p,...vals}))} lang={lang} C={C} robotKey={robot}/>}
+        {faceOpen&&robot&&hasFace&&<FacePanel jointObjs={jointObjRef.current} onTick={(vals)=>{for(const n in vals)syncJointDOM(n,vals[n]);}} onCommit={(vals)=>setJointVals(p=>({...p,...vals}))} lang={lang} C={C} robotKey={robot}/>}
 
         {/* Coord gizmo (top right of canvas) */}
         <div style={{position:"absolute",top:16,right:16,zIndex:20,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
