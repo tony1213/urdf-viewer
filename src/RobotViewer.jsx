@@ -322,6 +322,7 @@ export default function RobotViewer(){
   const[loading,setLoading]=useState(false);
   const[loadMsg,setLoadMsg]=useState("");
   const[files,setFiles]=useState([]);
+  const[urdfChoices,setUrdfChoices]=useState(null); // 多 URDF 待选:{list:[{path,file}],fileMap}
   const[upAxis,setUpAxis]=useState("Z");
   const[upSign,setUpSign]=useState(1);
   const upAxisRef=useRef("Z");
@@ -1072,21 +1073,36 @@ export default function RobotViewer(){
   },[clearDragAngle]);
   const onWh=useCallback(e=>{camAngle.current.radius=Math.max(0.005,Math.min(20,camAngle.current.radius*(1+e.deltaY*0.001)));updateCam();},[updateCam]);
 
-  const processItems=useCallback(async dt=>{
-    const fileMap=new Map(),arr=[];let urdf=null,urdfName="";const items=dt.items;
-    if(items?.[0]?.webkitGetAsEntry){setLoadMsg("扫描文件夹...");const readEntry=entry=>new Promise(res=>{if(entry.isFile)entry.file(f=>{arr.push({path:entry.fullPath.replace(/^\//,""),file:f});res();},()=>res());else if(entry.isDirectory){const rd=entry.createReader();const readAll=(all=[])=>rd.readEntries(async ents=>{if(!ents.length){await Promise.all(all.map(readEntry));res();}else readAll([...all,...ents]);},()=>res());readAll();}else res();});const ents=[];for(let i=0;i<items.length;i++){const e=items[i].webkitGetAsEntry();if(e)ents.push(e);}await Promise.all(ents.map(readEntry));}else{for(let i=0;i<dt.files.length;i++){const f=dt.files[i];arr.push({path:f.webkitRelativePath||f.name,file:f});}}
-    setFiles(arr.map(f=>f.path));setLoadMsg(`找到 ${arr.length} 个文件...`);
-    for(const{path,file}of arr){const ext=path.split(".").pop().toLowerCase();if((ext==="urdf"||ext==="xacro")&&!urdf){urdf=await file.text();urdfName=path;}fileMap.set(path,file);const parts=path.split("/");if(parts.length>1)fileMap.set(parts.slice(1).join("/"),file);if(parts.length>2)fileMap.set(parts.slice(2).join("/"),file);}
+  // 文件收集完成后的统一收尾:多个 .urdf/.xacro 时弹窗让用户选择,单个直接加载,没有则回退 .xml
+  const finishFolder=useCallback(async(arr,fileMap)=>{
+    setFiles(arr.map(f=>f.path));
+    const cands=arr.filter(({path})=>{const ext=path.split(".").pop().toLowerCase();return ext==="urdf"||ext==="xacro";});
+    if(cands.length>1){setUrdfChoices({list:cands,fileMap});setLoading(false);return;}
+    let urdf=null,urdfName="";
+    if(cands.length===1){urdf=await cands[0].file.text();urdfName=cands[0].path;}
     if(!urdf){for(const{path,file}of arr){if(path.endsWith(".xml")){const t=await file.text();if(t.includes("<robot")){urdf=t;urdfName=path;break;}}}}
     if(!urdf){setError("未在文件夹中找到 .urdf 文件");setLoading(false);return;}
     setLoadMsg(`加载 ${urdfName}...`);await loadURDF(urdf,fileMap);
   },[loadURDF]);
+  // 用户在多 URDF 弹窗中选定一个后加载
+  const pickUrdf=useCallback(async({path,file})=>{
+    if(!urdfChoices)return;const{fileMap}=urdfChoices;setUrdfChoices(null);
+    setLoading(true);setError(null);setLoadMsg(`加载 ${path}...`);
+    try{const t=await file.text();await loadURDF(t,fileMap);}catch(err){setError(err.message);setLoading(false);}
+  },[urdfChoices,loadURDF]);
+  const processItems=useCallback(async dt=>{
+    const fileMap=new Map(),arr=[];const items=dt.items;
+    if(items?.[0]?.webkitGetAsEntry){setLoadMsg("扫描文件夹...");const readEntry=entry=>new Promise(res=>{if(entry.isFile)entry.file(f=>{arr.push({path:entry.fullPath.replace(/^\//,""),file:f});res();},()=>res());else if(entry.isDirectory){const rd=entry.createReader();const readAll=(all=[])=>rd.readEntries(async ents=>{if(!ents.length){await Promise.all(all.map(readEntry));res();}else readAll([...all,...ents]);},()=>res());readAll();}else res();});const ents=[];for(let i=0;i<items.length;i++){const e=items[i].webkitGetAsEntry();if(e)ents.push(e);}await Promise.all(ents.map(readEntry));}else{for(let i=0;i<dt.files.length;i++){const f=dt.files[i];arr.push({path:f.webkitRelativePath||f.name,file:f});}}
+    setLoadMsg(`找到 ${arr.length} 个文件...`);
+    for(const{path,file}of arr){fileMap.set(path,file);const parts=path.split("/");if(parts.length>1)fileMap.set(parts.slice(1).join("/"),file);if(parts.length>2)fileMap.set(parts.slice(2).join("/"),file);}
+    await finishFolder(arr,fileMap);
+  },[finishFolder]);
   const onDrop=useCallback(async e=>{
     e.preventDefault();setDragging(false);
     setLoading(true);setError(null);
     try{await processItems(e.dataTransfer);}catch(err){setError(err.message);setLoading(false);}
   },[processItems]);
-  const onFolderSelect=useCallback(async e=>{const fls=e.target.files;if(!fls?.length)return;setLoading(true);setError(null);const fileMap=new Map(),arr=[];let urdf=null;for(let i=0;i<fls.length;i++){const f=fls[i],path=f.webkitRelativePath||f.name;arr.push({path,file:f});const ext=path.split(".").pop().toLowerCase();if((ext==="urdf"||ext==="xacro")&&!urdf){urdf=await f.text();}fileMap.set(path,f);const parts=path.split("/");if(parts.length>1)fileMap.set(parts.slice(1).join("/"),f);if(parts.length>2)fileMap.set(parts.slice(2).join("/"),f);}setFiles(arr.map(f=>f.path));if(!urdf){for(const{path,file}of arr){if(path.endsWith(".xml")){const t=await file.text();if(t.includes("<robot")){urdf=t;break;}}}}if(!urdf){setError("未在文件夹中找到 .urdf 文件");setLoading(false);return;}await loadURDF(urdf,fileMap);},[loadURDF]);
+  const onFolderSelect=useCallback(async e=>{const fls=e.target.files;if(!fls?.length)return;setLoading(true);setError(null);const fileMap=new Map(),arr=[];for(let i=0;i<fls.length;i++){const f=fls[i],path=f.webkitRelativePath||f.name;arr.push({path,file:f});fileMap.set(path,f);const parts=path.split("/");if(parts.length>1)fileMap.set(parts.slice(1).join("/"),f);if(parts.length>2)fileMap.set(parts.slice(2).join("/"),f);}try{await finishFolder(arr,fileMap);}catch(err){setError(err.message);setLoading(false);}},[finishFolder]);
 
   const jEntries=Object.entries(jointVals).filter(([n])=>{const o=jointObjRef.current[n];return o&&o.userData.jointType!=="fixed";});
   const hasInertial=robot?Object.values(robot.links).some(l=>l.inertial):false;
@@ -1117,6 +1133,7 @@ export default function RobotViewer(){
     dropRelease:"释放以加载 URDF 文件夹",loading:"加载中...",scanFolder:"扫描文件夹...",
     foundFiles:n=>`找到 ${n} 个文件...`,loadFile:n=>`加载 ${n}...`,buildScene:n=>`构建场景 · ${n} 个 mesh...`,
     noUrdf:"未在文件夹中找到 .urdf 文件",parseUrdf:"解析 URDF...",
+    multiUrdf:"文件夹中包含多个 URDF 文件",multiUrdfHint:"请选择要加载的文件:",cancel:"取消",
     grid:"网格",coordAxes:"坐标轴",wireframe:"线框",toggleBg:"切换背景",
     jointAxes:"关节坐标系 (RGB)",com:"质心 (COM)",inertia:"转动惯量",axisSize:"尺寸",jointAngles:"关节角度标注",jointLabels:"关节编号",
     coordSys:"坐标系 (Up Axis)",heightOffset:"模型高度偏移",autoGround:"⬇ 自动落地",viewPresets:"视角预设",
@@ -1130,6 +1147,7 @@ export default function RobotViewer(){
     dropRelease:"Drop to load URDF folder",loading:"Loading...",scanFolder:"Scanning folder...",
     foundFiles:n=>`Found ${n} files...`,loadFile:n=>`Loading ${n}...`,buildScene:n=>`Building scene · ${n} meshes...`,
     noUrdf:"No .urdf file found in folder",parseUrdf:"Parsing URDF...",
+    multiUrdf:"Multiple URDF files found in folder",multiUrdfHint:"Choose one to load:",cancel:"Cancel",
     grid:"Grid",coordAxes:"Axes",wireframe:"Wireframe",toggleBg:"Toggle BG",
     jointAxes:"Joint Axes (RGB)",com:"COM",inertia:"Inertia",axisSize:"Size",jointAngles:"Joint Angles",jointLabels:"Joint Labels",
     coordSys:"Coord System (Up Axis)",heightOffset:"Model Height Offset",autoGround:"⬇ Auto Ground",viewPresets:"View Presets",
@@ -1402,6 +1420,20 @@ export default function RobotViewer(){
           );
         })()}
         {loading&&(<div style={{position:"absolute",inset:0,background:"rgba(10,14,23,0.85)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:50,gap:16}}><div style={{width:48,height:48,border:`3px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",animation:"spin 1s linear infinite"}}/><div style={{fontSize:14,color:C.text,fontWeight:600}}>{loadMsg||T.loading}</div></div>)}
+
+        {/* 多 URDF 选择弹窗 */}
+        {urdfChoices&&(<div style={{position:"absolute",inset:0,background:"rgba(10,14,23,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:60}}>
+          <div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:12,padding:20,minWidth:320,maxWidth:"70%",maxHeight:"70%",display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.text}}>📄 {T.multiUrdf}</div>
+            <div style={{fontSize:11,color:C.dim}}>{T.multiUrdfHint}</div>
+            <div style={{overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+              {urdfChoices.list.map(c=>(
+                <button key={c.path} className="cb" onClick={()=>pickUrdf(c)} style={{textAlign:"left",padding:"8px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12,fontFamily:"monospace",cursor:"pointer",wordBreak:"break-all"}}>{c.path}</button>
+              ))}
+            </div>
+            <button className="cb" onClick={()=>setUrdfChoices(null)} style={{alignSelf:"flex-end",padding:"5px 14px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:11,cursor:"pointer"}}>{T.cancel}</button>
+          </div>
+        </div>)}
       </div>
 
       {/* ─── Resize Handle ─── */}
