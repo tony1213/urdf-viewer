@@ -324,6 +324,7 @@ export default function RobotViewer(){
   const[accentColor,setAccentColor]=useState("#22d3ee"); // user-customizable accent
   const[lang,setLang]=useState("zh"); // "zh"|"en"
   const[gridSize,setGridSize]=useState(1.0); // meters per grid cell, total size = gridSize * 10
+  const[gridSizeOpen,setGridSizeOpen]=useState(false); // 网格大小调节浮层:默认收起,点按钮右侧箭头在右边展开
   const[useRadians,setUseRadians]=useState(false); // false=degrees, true=radians
   const useRadiansRef=useRef(false);
   useEffect(()=>{useRadiansRef.current=useRadians;},[useRadians]);
@@ -1155,14 +1156,20 @@ export default function RobotViewer(){
 
         {/* Left toolbar */}
         <div style={{position:"absolute",top:16,left:16,display:"flex",flexDirection:"column",gap:6,zIndex:20}}>
-          <TBtn active={grid} onClick={()=>setGrid(!grid)} title={T.grid}>⊞</TBtn>
-          {grid&&(
-            <div style={{background:`${C.panel}ee`,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px",width:36,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <input type="range" min={0.1} max={5} step={0.1} value={gridSize} onChange={e=>setGridSize(+e.target.value)}
-                style={{width:60,transform:"rotate(-90deg)",transformOrigin:"center",margin:"18px 0",appearance:"none",WebkitAppearance:"none",height:3,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
-              <div style={{fontSize:8,color:C.dim}}>{gridSize.toFixed(1)}m</div>
-            </div>
-          )}
+          {/* 网格开关 + 右侧展开的大小调节(默认收起,不占工具栏纵向空间) */}
+          <div style={{position:"relative"}}>
+            <TBtn active={grid} onClick={()=>{if(grid)setGridSizeOpen(false);setGrid(!grid);}} title={T.grid}>⊞</TBtn>
+            {grid&&<div onClick={()=>setGridSizeOpen(v=>!v)} title={T.gridSizeLabel}
+              style={{position:"absolute",top:"50%",left:"100%",transform:"translate(3px,-50%)",width:13,height:22,borderRadius:4,background:gridSizeOpen?C.accent:`${C.panel}ee`,border:`1px solid ${gridSizeOpen?C.accent:C.border}`,color:gridSizeOpen?C.bg:C.dim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,cursor:"pointer",userSelect:"none",transition:"all 0.15s"}}>{gridSizeOpen?"◂":"▸"}</div>}
+            {grid&&gridSizeOpen&&(
+              <div style={{position:"absolute",top:0,left:"100%",marginLeft:20,background:`${C.panel}ee`,border:`1px solid ${C.border}`,borderRadius:8,padding:"0 10px",height:36,display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap",boxShadow:"0 4px 16px rgba(0,0,0,0.25)"}}>
+                <span style={{fontSize:9,color:C.dim}}>{T.gridSizeLabel}</span>
+                <input type="range" min={0.1} max={5} step={0.1} value={gridSize} onChange={e=>setGridSize(+e.target.value)}
+                  style={{width:110,appearance:"none",WebkitAppearance:"none",height:3,borderRadius:2,background:C.border,outline:"none",cursor:"pointer"}}/>
+                <span style={{fontSize:9,color:C.accent,fontVariantNumeric:"tabular-nums",minWidth:30,textAlign:"right"}}>{gridSize.toFixed(1)}m</span>
+              </div>
+            )}
+          </div>
           <TBtn active={axes} onClick={()=>setAxes(!axes)} title={T.coordAxes}>✛</TBtn>
           <TBtn active={wire} onClick={()=>setWire(!wire)} title={T.wireframe}>△</TBtn>
           <TBtn active={!darkMode} onClick={()=>setDarkMode(!darkMode)} title={T.toggleBg} color={darkMode?C.accent:"#334155"}>
@@ -1176,22 +1183,6 @@ export default function RobotViewer(){
               <line x1="6" y1="10" x2="9" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               <line x1="12" y1="10" x2="9" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               <circle cx="9" cy="16" r="1.5" fill="currentColor"/>
-            </svg>
-          </TBtn>}
-          {robot&&<TBtn active={measureMode} onClick={()=>{setMeasureMode(v=>!v);if(tcpMode)setTcpMode(false);}} title={T.measure} color="#f97316">
-            <svg width="18" height="18" viewBox="0 0 18 18">
-              <line x1="3" y1="15" x2="15" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              <circle cx="3" cy="15" r="2" fill="currentColor"/>
-              <circle cx="15" cy="3" r="2" fill="currentColor"/>
-              <line x1="6" y1="15" x2="6" y2="12" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-              <line x1="9" y1="13" x2="9" y2="10" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-              <line x1="12" y1="10" x2="12" y2="7" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-            </svg>
-          </TBtn>}
-          {robot&&hasLegs&&<TBtn active={gaitOpen} onClick={()=>{setGaitOpen(v=>!v);if(!gaitOpen)setFaceOpen(false);}} title={lang==="zh"?"步态生成":"Gait Generator"} color="#22c55e">
-            <svg width="18" height="18" viewBox="0 0 18 18">
-              <circle cx="10" cy="2.8" r="1.7" fill="currentColor"/>
-              <path d="M9.8 5.2 L9.2 9 L6.2 14.8 M9.2 9 L11.8 11.8 L12.1 15.4 M9.6 6.2 L6.6 8.4 M9.6 6.2 L12.7 7.8" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </TBtn>}
           {robot&&hasFace&&<TBtn active={faceOpen} onClick={()=>{setFaceOpen(v=>!v);if(!faceOpen)setGaitOpen(false);}} title={lang==="zh"?"人脸表情":"Face Expression"} color="#a855f7">
@@ -1209,12 +1200,6 @@ export default function RobotViewer(){
               <line x1="4" y1="14" x2="1" y2="17" stroke="#4488ff" strokeWidth="2" strokeLinecap="round"/>
             </svg>
           </TBtn>
-          <TBtn active={showCOM} onClick={()=>setShowCOM(!showCOM)} title={T.com} color="#ff4444">
-            <svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="none" stroke="currentColor" strokeWidth="1.5"/><circle cx="9" cy="9" r="1.5" fill="currentColor"/><line x1="9" y1="2" x2="9" y2="5" stroke="currentColor" strokeWidth="1"/><line x1="9" y1="13" x2="9" y2="16" stroke="currentColor" strokeWidth="1"/><line x1="2" y1="9" x2="5" y2="9" stroke="currentColor" strokeWidth="1"/><line x1="13" y1="9" x2="16" y2="9" stroke="currentColor" strokeWidth="1"/></svg>
-          </TBtn>
-          {hasInertial&&<TBtn active={showInertia} onClick={()=>setShowInertia(!showInertia)} title={T.inertia} color="#8844ff">
-            <svg width="18" height="18" viewBox="0 0 18 18"><ellipse cx="9" cy="9" rx="7" ry="4" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/><ellipse cx="9" cy="9" rx="4" ry="7" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/></svg>
-          </TBtn>}
           {showJointAxes&&(
             <div style={{background:`${C.panel}ee`,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 6px",width:36,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
               <div style={{fontSize:8,color:"#ffaa00",fontWeight:700}}>{T.axisSize}</div>
@@ -1223,6 +1208,28 @@ export default function RobotViewer(){
               <div style={{fontSize:8,color:C.dim}}>{axisScale.toFixed(2)}</div>
             </div>
           )}
+          <TBtn active={showCOM} onClick={()=>setShowCOM(!showCOM)} title={T.com} color="#ff4444">
+            <svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="none" stroke="currentColor" strokeWidth="1.5"/><circle cx="9" cy="9" r="1.5" fill="currentColor"/><line x1="9" y1="2" x2="9" y2="5" stroke="currentColor" strokeWidth="1"/><line x1="9" y1="13" x2="9" y2="16" stroke="currentColor" strokeWidth="1"/><line x1="2" y1="9" x2="5" y2="9" stroke="currentColor" strokeWidth="1"/><line x1="13" y1="9" x2="16" y2="9" stroke="currentColor" strokeWidth="1"/></svg>
+          </TBtn>
+          {hasInertial&&<TBtn active={showInertia} onClick={()=>setShowInertia(!showInertia)} title={T.inertia} color="#8844ff">
+            <svg width="18" height="18" viewBox="0 0 18 18"><ellipse cx="9" cy="9" rx="7" ry="4" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/><ellipse cx="9" cy="9" rx="4" ry="7" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2,1.5"/></svg>
+          </TBtn>}
+          {robot&&<TBtn active={measureMode} onClick={()=>{setMeasureMode(v=>!v);if(tcpMode)setTcpMode(false);}} title={T.measure} color="#f97316">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <line x1="3" y1="15" x2="15" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <circle cx="3" cy="15" r="2" fill="currentColor"/>
+              <circle cx="15" cy="3" r="2" fill="currentColor"/>
+              <line x1="6" y1="15" x2="6" y2="12" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              <line x1="9" y1="13" x2="9" y2="10" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+              <line x1="12" y1="10" x2="12" y2="7" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+            </svg>
+          </TBtn>}
+          {robot&&hasLegs&&<TBtn active={gaitOpen} onClick={()=>{setGaitOpen(v=>!v);if(!gaitOpen)setFaceOpen(false);}} title={lang==="zh"?"步态生成":"Gait Generator"} color="#22c55e">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <circle cx="10" cy="2.8" r="1.7" fill="currentColor"/>
+              <path d="M9.8 5.2 L9.2 9 L6.2 14.8 M9.2 9 L11.8 11.8 L12.1 15.4 M9.6 6.2 L6.6 8.4 M9.6 6.2 L12.7 7.8" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </TBtn>}
         </div>
 
         {/* ─── GAIT: gait generator panel (only if robot has complete legs) ─── */}
