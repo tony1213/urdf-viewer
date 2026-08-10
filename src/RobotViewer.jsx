@@ -302,6 +302,10 @@ export default function RobotViewer(){
   const[loadMsg,setLoadMsg]=useState("");
   const[files,setFiles]=useState([]);
   const[urdfChoices,setUrdfChoices]=useState(null); // 多 URDF 待选:{list:[{path,file}],fileMap}
+  const[urdfList,setUrdfList]=useState([]); // 当前文件夹里的全部 URDF 候选,供 URDF 标签页点击切换
+  const[currentUrdf,setCurrentUrdf]=useState(""); // 已加载的 URDF 路径
+  const fileMapRef=useRef(new Map()); // 当前文件夹的 fileMap,切换 URDF 时复用(mesh 不必重新拖入)
+  const activeUrdfRef=useRef(null); // 切换列表里当前项,用于自动滚入视野
   const[upAxis,setUpAxis]=useState("Z");
   const[upSign,setUpSign]=useState(1);
   const upAxisRef=useRef("Z");
@@ -346,6 +350,8 @@ export default function RobotViewer(){
   useEffect(()=>{robotRef.current=robot;},[robot]);
   useEffect(()=>{tcpModeRef.current=tcpMode;},[tcpMode]);
   useEffect(()=>{measureModeRef.current=measureMode;},[measureMode]);
+  // 切换列表可能很长(G1 有 25 个 urdf),打开 URDF 标签或换了模型时把当前项滚进视野
+  useEffect(()=>{if(sidebarTab==="urdf")activeUrdfRef.current?.scrollIntoView({block:"nearest"});},[currentUrdf,sidebarTab]);
   const updateCam=useCallback(()=>{if(!cameraRef.current)return;const{theta,phi,radius}=camAngle.current,t=lookTarget.current;cameraRef.current.position.set(t.x+radius*Math.sin(phi)*Math.cos(theta),t.y+radius*Math.cos(phi),t.z+radius*Math.sin(phi)*Math.sin(theta));cameraRef.current.lookAt(t);},[]);
 
   // Sidebar resize — native events + fullscreen overlay to prevent canvas from stealing mouse
@@ -856,6 +862,8 @@ export default function RobotViewer(){
   const loadURDF=useCallback(async(urdfStr,fileMap=new Map())=>{
     try{
       setError(null);setLoading(true);setLoadMsg("解析 URDF...");
+      // 切换 URDF 时旧模型会被整体移除,附着其上的测量标记/关节选择会变成孤儿,先清掉
+      clearMeasure();setSelectedJoints([]);
       const parsed=parseURDF(urdfStr);let mc=0;for(const l of Object.values(parsed.links))for(const v of(l.visuals||[]))if(v.type==="mesh")mc++;
       setLoadMsg(`构建场景 · ${mc} 个 mesh...`);
       if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);
@@ -875,7 +883,7 @@ export default function RobotViewer(){
       setLinkOpacities(lo);
       setJointVals(iv);setRobot(parsed);setLoading(false);
     }catch(e){setError(e.message);setLoading(false);}
-  },[updateCam,applyCoord]);
+  },[updateCam,applyCoord,clearMeasure]);
 
   // Imperatively sync a joint's slider + number box DOM to a value, WITHOUT any
   // React state update. This mirrors how manual slider drags already update the
@@ -1042,20 +1050,21 @@ export default function RobotViewer(){
   // 文件收集完成后的统一收尾:多个 .urdf/.xacro 时弹窗让用户选择,单个直接加载,没有则回退 .xml
   const finishFolder=useCallback(async(arr,fileMap)=>{
     setFiles(arr.map(f=>f.path));
+    fileMapRef.current=fileMap; // 留住 fileMap,之后在 URDF 标签页切换时直接复用
     const cands=arr.filter(({path})=>{const ext=path.split(".").pop().toLowerCase();return ext==="urdf"||ext==="xacro";});
+    setUrdfList(cands);setCurrentUrdf("");
     if(cands.length>1){setUrdfChoices({list:cands,fileMap});setLoading(false);return;}
     let urdf=null,urdfName="";
     if(cands.length===1){urdf=await cands[0].file.text();urdfName=cands[0].path;}
     if(!urdf){for(const{path,file}of arr){if(path.endsWith(".xml")){const t=await file.text();if(t.includes("<robot")){urdf=t;urdfName=path;break;}}}}
     if(!urdf){setError("未在文件夹中找到 .urdf 文件");setLoading(false);return;}
-    setLoadMsg(`加载 ${urdfName}...`);await loadURDF(urdf,fileMap);
+    setLoadMsg(`加载 ${urdfName}...`);await loadURDF(urdf,fileMap);setCurrentUrdf(urdfName);
   },[loadURDF]);
-  // 用户在多 URDF 弹窗中选定一个后加载
-  const pickUrdf=useCallback(async({path,file})=>{
-    if(!urdfChoices)return;const{fileMap}=urdfChoices;setUrdfChoices(null);
-    setLoading(true);setError(null);setLoadMsg(`加载 ${path}...`);
-    try{const t=await file.text();await loadURDF(t,fileMap);}catch(err){setError(err.message);setLoading(false);}
-  },[urdfChoices,loadURDF]);
+  // 加载指定 URDF:多 URDF 弹窗选定 与 URDF 标签页内点击切换 共用同一条路径
+  const loadUrdfFile=useCallback(async({path,file})=>{
+    setUrdfChoices(null);setLoading(true);setError(null);setLoadMsg(`加载 ${path}...`);
+    try{const t=await file.text();await loadURDF(t,fileMapRef.current);setCurrentUrdf(path);}catch(err){setError(err.message);setLoading(false);}
+  },[loadURDF]);
   const processItems=useCallback(async dt=>{
     const fileMap=new Map(),arr=[];const items=dt.items;
     if(items?.[0]?.webkitGetAsEntry){setLoadMsg("扫描文件夹...");const readEntry=entry=>new Promise(res=>{if(entry.isFile)entry.file(f=>{arr.push({path:entry.fullPath.replace(/^\//,""),file:f});res();},()=>res());else if(entry.isDirectory){const rd=entry.createReader();const readAll=(all=[])=>rd.readEntries(async ents=>{if(!ents.length){await Promise.all(all.map(readEntry));res();}else readAll([...all,...ents]);},()=>res());readAll();}else res();});const ents=[];for(let i=0;i<items.length;i++){const e=items[i].webkitGetAsEntry();if(e)ents.push(e);}await Promise.all(ents.map(readEntry));}else{for(let i=0;i<dt.files.length;i++){const f=dt.files[i];arr.push({path:f.webkitRelativePath||f.name,file:f});}}
@@ -1099,7 +1108,7 @@ export default function RobotViewer(){
     dropRelease:"释放以加载 URDF 文件夹",loading:"加载中...",scanFolder:"扫描文件夹...",
     foundFiles:n=>`找到 ${n} 个文件...`,loadFile:n=>`加载 ${n}...`,buildScene:n=>`构建场景 · ${n} 个 mesh...`,
     noUrdf:"未在文件夹中找到 .urdf 文件",parseUrdf:"解析 URDF...",
-    multiUrdf:"文件夹中包含多个 URDF 文件",multiUrdfHint:"请选择要加载的文件:",cancel:"取消",
+    multiUrdf:"文件夹中包含多个 URDF 文件",multiUrdfHint:"请选择要加载的文件:",cancel:"取消",switchUrdf:"切换 URDF",
     grid:"网格",coordAxes:"坐标轴",wireframe:"线框",toggleBg:"切换背景",
     jointAxes:"关节坐标系 (RGB)",com:"质心 (COM)",inertia:"转动惯量",axisSize:"尺寸",jointAngles:"关节角度标注",
     coordSys:"坐标系 (Up Axis)",heightOffset:"模型高度偏移",autoGround:"⬇ 自动落地",viewPresets:"视角预设",
@@ -1113,7 +1122,7 @@ export default function RobotViewer(){
     dropRelease:"Drop to load URDF folder",loading:"Loading...",scanFolder:"Scanning folder...",
     foundFiles:n=>`Found ${n} files...`,loadFile:n=>`Loading ${n}...`,buildScene:n=>`Building scene · ${n} meshes...`,
     noUrdf:"No .urdf file found in folder",parseUrdf:"Parsing URDF...",
-    multiUrdf:"Multiple URDF files found in folder",multiUrdfHint:"Choose one to load:",cancel:"Cancel",
+    multiUrdf:"Multiple URDF files found in folder",multiUrdfHint:"Choose one to load:",cancel:"Cancel",switchUrdf:"Switch URDF",
     grid:"Grid",coordAxes:"Axes",wireframe:"Wireframe",toggleBg:"Toggle BG",
     jointAxes:"Joint Axes (RGB)",com:"COM",inertia:"Inertia",axisSize:"Size",jointAngles:"Joint Angles",
     coordSys:"Coord System (Up Axis)",heightOffset:"Model Height Offset",autoGround:"⬇ Auto Ground",viewPresets:"View Presets",
@@ -1389,7 +1398,7 @@ export default function RobotViewer(){
             <div style={{fontSize:11,color:C.dim}}>{T.multiUrdfHint}</div>
             <div style={{overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
               {urdfChoices.list.map(c=>(
-                <button key={c.path} className="cb" onClick={()=>pickUrdf(c)} style={{textAlign:"left",padding:"8px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12,fontFamily:"monospace",cursor:"pointer",wordBreak:"break-all"}}>{c.path}</button>
+                <button key={c.path} className="cb" onClick={()=>loadUrdfFile(c)} style={{textAlign:"left",padding:"8px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.text,fontSize:12,fontFamily:"monospace",cursor:"pointer",wordBreak:"break-all"}}>{c.path}</button>
               ))}
             </div>
             <button className="cb" onClick={()=>setUrdfChoices(null)} style={{alignSelf:"flex-end",padding:"5px 14px",borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.dim,fontSize:11,cursor:"pointer"}}>{T.cancel}</button>
@@ -1587,6 +1596,25 @@ export default function RobotViewer(){
             {/* ── URDF Tree tab ── */}
             {sidebarTab==="urdf"&&(
               <div style={{padding:"8px 0"}}>
+                {/* 同一文件夹里有多个 URDF 时,点这里直接切换(mesh 复用已加载的 fileMap) */}
+                {urdfList.length>1&&(
+                  <div style={{padding:"2px 12px 8px",borderBottom:`1px solid ${C.border}`,marginBottom:6}}>
+                    <div style={{fontSize:10,color:C.accent,fontWeight:600,marginBottom:5}}>📄 {T.switchUrdf} ({urdfList.length})</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:3,maxHeight:180,overflowY:"auto"}}>
+                      {urdfList.map(c=>{
+                        const act=c.path===currentUrdf,base=c.path.split("/").pop(),dir=c.path.slice(0,-base.length-1);
+                        return(
+                          <button key={c.path} className={act?undefined:"cb"} disabled={act||loading} onClick={()=>loadUrdfFile(c)} title={c.path}
+                            ref={act?activeUrdfRef:undefined}
+                            style={{textAlign:"left",padding:"5px 8px",borderRadius:5,border:`1px solid ${act?C.accent:C.border}`,background:act?`${C.accent}18`:C.bg,cursor:act?"default":"pointer",fontFamily:"'JetBrains Mono',monospace",overflow:"hidden",flexShrink:0}}>
+                            <div style={{fontSize:10,fontWeight:act?700:500,color:act?C.accent:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{act?"●":"○"} {base}</div>
+                            {dir&&<div style={{fontSize:8.5,color:C.dim,paddingLeft:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dir}</div>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {urdfTree?<div style={{padding:"0 4px"}}><URDFLinkNode node={urdfTree} robot={robot} depth={0}/></div>
                   :<div style={{padding:20,textAlign:"center",color:C.dim,fontSize:12}}>{T.noFolderData}</div>}
               </div>
@@ -1604,7 +1632,7 @@ export default function RobotViewer(){
 
           <button className="rb" style={{padding:"8px 16px",margin:"8px 20px 4px",background:`${C.danger}22`,border:`1px solid ${C.danger}44`,borderRadius:6,color:C.danger,fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",textAlign:"center"}} onClick={resetJoints}>{T.resetJoints}</button>
           <button className="rb" style={{padding:"8px 16px",margin:"0 20px 10px",background:`${C.accent}22`,border:`1px solid ${C.accent}44`,borderRadius:6,color:C.accent,fontSize:11,fontWeight:600,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.08em",textAlign:"center"}}
-            onClick={()=>{if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);offsetGroupRef.current=null;worldGroupRef.current=null;robotGroupRef.current=null;jointObjRef.current={};linkObjRef.current={};comRef.current=[];inertiaRef.current=[];axisRef.current=[];setRobot(null);setJointVals({});setFiles([]);setLinkOpacities({});setLinkColors({});lookTarget.current.set(0,0.3,0);camAngle.current={theta:Math.PI/4,phi:Math.PI/3,radius:2};updateCam();}}>{T.unload}</button>
+            onClick={()=>{if(offsetGroupRef.current&&sceneRef.current)sceneRef.current.remove(offsetGroupRef.current);offsetGroupRef.current=null;worldGroupRef.current=null;robotGroupRef.current=null;jointObjRef.current={};linkObjRef.current={};comRef.current=[];inertiaRef.current=[];axisRef.current=[];setRobot(null);setJointVals({});setFiles([]);setLinkOpacities({});setLinkColors({});setUrdfList([]);setCurrentUrdf("");fileMapRef.current=new Map();lookTarget.current.set(0,0.3,0);camAngle.current={theta:Math.PI/4,phi:Math.PI/3,radius:2};updateCam();}}>{T.unload}</button>
         </>)}
       </div>
 
