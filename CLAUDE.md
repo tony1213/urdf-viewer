@@ -53,7 +53,6 @@ Most mouse/keyboard handlers are attached as **native** DOM listeners (not React
 - **Link drag** — left-click on a hovered link rotates its parent joint (horizontal mouse delta → angle/position).
 - **TCP IK** — only enabled for serial chains. CCD solver, 20 iterations, projects onto each joint's rotation plane. Skips fixed/prismatic.
 - **Measure tool** — two-click point-to-point distance with vertex snapping; markers are parented to their hit link so they follow joint motion.
-- **Joint number labels** — per-joint numbered `THREE.Sprite` labels (canvas textures), toggleable, with sidebar-hover highlight (sprite scales up and turns orange).
 - **Gait / face panels** — conditionally mounted only when `hasCompleteLegs()` / `hasExpressionJoints()` pass (both are pure name checks, evaluated every render). See `src/gait/`.
 
 ## Conventions
